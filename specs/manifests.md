@@ -1,10 +1,11 @@
 # Manifests `aios/v1alpha1`
 
-Agent, App, Workflow and Policy resources share the Kubernetes shape `apiVersion` / `kind` /
+Agent, App, Workflow, Policy and ModelPolicy resources share the Kubernetes shape `apiVersion` / `kind` /
 `metadata` / `spec`. Python models: `aios.core.manifests`. Generated schemas:
 [agent](schemas/manifests/agent.v1alpha1.json), [app](schemas/manifests/app.v1alpha1.json),
 [workflow](schemas/manifests/workflow.v1alpha1.json),
-[policy](schemas/manifests/policy.v1alpha1.json). Worked examples:
+[policy](schemas/manifests/policy.v1alpha1.json),
+[model-policy](schemas/manifests/model-policy.v1alpha1.json). Worked examples:
 [apps/ai-researcher](../apps/ai-researcher/manifests/), [apps/ai-support-desk](../apps/ai-support-desk/manifests/).
 
 ## Common rules
@@ -34,7 +35,7 @@ Agent, App, Workflow and Policy resources share the Kubernetes shape `apiVersion
 
 | Field | Rule |
 |---|---|
-| `spec.entrypoints` | At least one: `chat` (`workflow`) or `event` (`on`: topic pattern, `workflow`). Schedules, webhooks, OpenAI-compatible and A2A entry points arrive in v1.0 (FR-APP-02). Each workflow must be listed in `spec.workflows`. |
+| `spec.entrypoints` | At least one: `chat` (`workflow`; the run's input is `{message}`) or `event` (`on`: topic pattern, `workflow`; each matching fact starts one run whose input is the fact's data, and a redelivered fact never starts a second). Schedules, webhooks, OpenAI-compatible and A2A entry points arrive in v1.0 (FR-APP-02). Each workflow must be listed in `spec.workflows`. |
 | `spec.agents`, `spec.workflows`, `spec.policies` | Resource names |
 | `spec.tools` | Each item has exactly one of `provider` (e.g. an MCP server) or `name` (one tool) |
 | `spec.memory` | `scopes` and `knowledge` sources (`source` URI, `scope`) |
@@ -58,6 +59,14 @@ Every step has `id` (DNS label, unique), `needs` (defaults to the previous step)
 `maxAttempts` (default 3). `needs` may only point to earlier steps, so the forward graph is
 acyclic by construction; loops are explicit `onResult` back-edges bounded by `maxLoops`.
 `spec.budget` sets `maxCostUSD`, `maxDuration` and `maxSteps` for the whole run.
+
+Step `input` bindings and `spec.output` use expressions: `${input}`, `${input.<path>}`,
+`${<step>.output}` and `${<step>.output.<path>}`. A value that is exactly one expression keeps
+its type; expressions inside a longer string become text. Without `input`, a step receives the
+output of its single `needs` step (a map of outputs for several, the run's input for the first
+step); a step re-run by an `onResult` loop also receives the triggering output as `feedback`.
+`spec.output` says what the run returns (default: the last step's output). A run finishes on
+the workflow version it started with, even if a newer version is installed meanwhile.
 
 ## Policy (requirements §7.9, FR-SEC-03, ADR-007)
 
@@ -83,3 +92,21 @@ configuration at install time; a value that is exactly one placeholder keeps its
 threshold stays a number. An agent acting for a user gets the intersection of both decisions
 (FR-SEC-05). Requests that can't be evaluated — a string where a number is compared, an unknown
 principal kind, a tool without a side-effect class — are denied.
+
+## ModelPolicy (requirements §7.10, FR-MOD-03/04, ADR-008)
+
+Read by the Model Kernel; an App picks one with `spec.modelPolicy` (default `default`, shipped
+in `aios/models/defaults/model-policy.yaml`). Candidates are `<provider>/<model>` ids from the
+model registry (`aios/models/defaults/registry.yaml`); `<…>` placeholders stand in for models
+a deployment fills in.
+
+| Field | Rule |
+|---|---|
+| `spec.rules[]` | `match` (`task`, `dataClass`, `agent`), optional `require.deployment` (`private`), `candidates` in order |
+| `spec.default` | `candidates` when no rule matches |
+| `spec.fallback` | `next-candidate` (default) or `none` |
+| `spec.retries` | `max` (default 2) and `backoff` (`exponential` or `none`) for retryable errors |
+| `spec.budgets` | `perRunUSD`, `perTenantMonthlyUSD`, `onSoftLimit` (enforced from WP 2.6) |
+
+The first matching rule decides. Whatever the rules say, `restricted` data only goes to
+`private` deployments (FR-SEC-11).

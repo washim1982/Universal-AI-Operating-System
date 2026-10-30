@@ -1,0 +1,29 @@
+# AIOS default model registry (ADR-008). Prices are USD per million tokens, first-party API
+# rates as of October 2026; override this file per deployment. Placeholder entries stand in for
+# models a deployment chooses (requirements §7.10) and must be filled in before live use.
+models:
+  - id: anthropic/claude-opus-5-5
+    model: claude-opus-5-5
+    contextWindow: 1000000
+    prices: { input: 4.00, output: 20.00 }
+    refusalFallback: true
+  - id: anthropic/claude-sonnet-5-5
+    model: claude-sonnet-5-5
+    contextWindow: 1000000
+    prices: { input: 2.00, output: 10.00 }
+    refusalFallback: true
+  - id: anthropic/claude-haiku-5-5
+    model: claude-haiku-5-5
+    contextWindow: 1000000
+    prices:
+      input: 0.10
+      output: 0.50
+      longContextThreshold: 100000
+      longContextInput: 0.50
+      longContextOutput: 2.50
+
+  - { id: "openai/<coding-model>", model: "<coding-model>", placeholder: true }
+  - { id: "openai/<reasoning-model>", model: "<reasoning-model>", placeholder: true }
+  - { id: "google/<general-model>", model: "<general-model>", placeholder: true }
+  - { id: "private/<open-weights-model>", model: "<open-weights-model>", deployment: private, placeholder: true }
+  - { id: "private/<small-model>", model: "<small-model>", deployment: private, placeholder: true }

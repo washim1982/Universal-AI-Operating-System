@@ -65,3 +65,61 @@ class NotFoundError(AIOSError, LookupError):
     """The requested resource does not exist, or is outside the caller's scope."""
 
     code = "not_found"
+
+
+class BudgetExceededError(AIOSError):
+    """A step, token, cost or time budget ran out (FR-AGT-08, FR-WF-08, FR-MOD-07)."""
+
+    code = "budget.exceeded"
+
+    def __init__(self, budget: str, limit: float, observed: float) -> None:
+        super().__init__(f"{budget} budget exceeded: {observed:g} > {limit:g}")
+        self.budget = budget
+        self.limit = limit
+        self.observed = observed
+
+
+class ModelError(AIOSError):
+    """No candidate model produced a valid response (FR-MOD-05)."""
+
+    code = "model.failed"
+
+
+class ModelOutputError(ModelError):
+    """The model's output does not match the requested structured-output schema."""
+
+    code = "model.invalid_output"
+
+
+class ToolError(AIOSError):
+    """A tool call failed (FR-TOOL-05). ``retryable`` tells the caller whether to try again."""
+
+    code = "tool.failed"
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+class ToolNotFoundError(ToolError):
+    code = "tool.not_found"
+
+
+class ToolInputError(ToolError):
+    code = "tool.invalid_input"
+
+
+class ToolDeniedError(ToolError):
+    """The policy denied the call; the model can't grant itself permissions (FR-SEC-04)."""
+
+    code = "policy.denied"
+
+
+class ApprovalRequiredError(ToolError):
+    """The policy requires an approval first. Pausing for it arrives with Human OS (WP 2.4)."""
+
+    code = "approval.required"
+
+    def __init__(self, message: str, approvers: tuple[str, ...]) -> None:
+        super().__init__(message)
+        self.approvers = approvers

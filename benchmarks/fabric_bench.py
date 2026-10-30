@@ -1,10 +1,12 @@
 """Fabric benchmark harness (WP 1.1, NFR-01 / NFR-02).
 
-Measures publish-to-delivery latency and throughput for an EventBus adapter. Today only the
-in-memory adapter exists, so the numbers are a harness check rather than an NFR measurement;
-the PostgreSQL (WP 1.1) and NATS (WP 4.1) adapters plug in through ``ADAPTERS``.
+Measures publish-to-delivery latency and throughput for an EventBus adapter: each event is
+timed from the start of ``publish`` until a consumer-group member receives it. NFR-01 is
+measured on the PostgreSQL adapter (set ``AIOS_BENCH_DATABASE_URL``); NATS (WP 4.1) plugs in
+through ``ADAPTERS`` too.
 
     uv run python benchmarks/fabric_bench.py --events 20000 --rate 1000 --consumers 4
+    uv run python benchmarks/fabric_bench.py --adapter postgres --rate 1000 --events 20000
     uv run python benchmarks/fabric_bench.py --json results.json
 """
 
@@ -13,17 +15,29 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import statistics
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from aios.core.ids import new_ulid
 from aios.fabric import EventBus, InMemoryEventBus, Scope, Subscription
+from aios.fabric.postgres import PostgresEventBus
 from aios.testing import make_event
+
+
+def _postgres() -> EventBus:
+    dsn = os.environ.get("AIOS_BENCH_DATABASE_URL")
+    if not dsn:
+        raise SystemExit("set AIOS_BENCH_DATABASE_URL to benchmark the PostgreSQL adapter")
+    return PostgresEventBus(dsn, schema=f"bench_{new_ulid().lower()}", drop_on_close=True)
+
 
 ADAPTERS: dict[str, Callable[[], EventBus]] = {
     "memory": lambda: InMemoryEventBus(validate_payloads=False),
+    "postgres": _postgres,
 }
 
 
@@ -59,7 +73,26 @@ async def _consume(
             done.set()
 
 
-async def run(adapter: str, events: int, rate: float | None, consumers: int) -> Result:
+async def _produce(
+    bus: EventBus, indexes: range, rate: float | None, sent_at: dict[str, float]
+) -> None:
+    interval = 1 / rate if rate else 0.0
+    started = time.perf_counter()
+    for count, index in enumerate(indexes):
+        event = make_event("bench.item.created", {"n": index}, tenant="bench", app="bench")
+        sent_at[event.id] = time.perf_counter()
+        await bus.publish(event)
+        if interval:
+            delay = started + (count + 1) * interval - time.perf_counter()
+            if delay > 0:
+                await asyncio.sleep(delay)
+        elif count % 256 == 0:
+            await asyncio.sleep(0)  # let consumers run
+
+
+async def run(
+    adapter: str, events: int, rate: float | None, consumers: int, producers: int = 1
+) -> Result:
     scope = Scope("bench", "bench")
     sent_at: dict[str, float] = {}
     latencies: list[float] = []
@@ -72,18 +105,11 @@ async def run(adapter: str, events: int, rate: float | None, consumers: int) -> 
         workers = [
             asyncio.create_task(_consume(s, sent_at, latencies, events, done)) for s in streams
         ]
-        interval = 1 / rate if rate else 0.0
         started = time.perf_counter()
-        for index in range(events):
-            event = make_event("bench.item.created", {"n": index}, tenant="bench", app="bench")
-            sent_at[event.id] = time.perf_counter()
-            await bus.publish(event)
-            if interval:
-                delay = started + (index + 1) * interval - time.perf_counter()
-                if delay > 0:
-                    await asyncio.sleep(delay)
-            elif index % 256 == 0:
-                await asyncio.sleep(0)  # let consumers run
+        share = rate / producers if rate else None
+        await asyncio.gather(
+            *(_produce(bus, range(i, events, producers), share, sent_at) for i in range(producers))
+        )
         await done.wait()
         elapsed = time.perf_counter() - started
         for worker in workers:
@@ -110,9 +136,10 @@ def main() -> None:
     parser.add_argument("--events", type=int, default=10_000)
     parser.add_argument("--rate", type=float, default=None, help="events/s; default: flat out")
     parser.add_argument("--consumers", type=int, default=1)
+    parser.add_argument("--producers", type=int, default=1, help="concurrent publishers")
     parser.add_argument("--json", type=Path, default=None, help="also write the result here")
     args = parser.parse_args()
-    result = asyncio.run(run(args.adapter, args.events, args.rate, args.consumers))
+    result = asyncio.run(run(args.adapter, args.events, args.rate, args.consumers, args.producers))
     print(json.dumps(asdict(result), indent=2))
     if args.json:
         args.json.write_text(json.dumps(asdict(result), indent=2) + "\n", encoding="utf-8")

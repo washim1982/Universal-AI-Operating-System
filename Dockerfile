@@ -11,6 +11,8 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 # Dependencies first, so source changes don't invalidate this layer.
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
+# The lock covers the workspace; uv needs its members' pyproject.toml, not their code.
+COPY apps/ai-researcher/pyproject.toml apps/ai-researcher/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 COPY src ./src

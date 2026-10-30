@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/model.call.completed/1",
+  "$defs": {
+    "JsonValue": {},
+    "Usage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "cost_usd": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "call": {
+      "description": "Index of the call within the task execution.",
+      "minimum": 0,
+      "title": "Call",
+      "type": "integer"
+    },
+    "site": {
+      "description": "Call-site key (aios.core.ports.CallSite.key).",
+      "title": "Site",
+      "type": "string"
+    },
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Step"
+    },
+    "task": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Routing hint the policy resolved.",
+      "title": "Task"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "usage": {
+      "$ref": "#/$defs/Usage"
+    },
+    "latency_ms": {
+      "minimum": 0,
+      "title": "Latency Ms",
+      "type": "number"
+    },
+    "stop_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stop Reason"
+    },
+    "output_text": {
+      "description": "The recorded completion (ADR-010), for replay.",
+      "title": "Output Text",
+      "type": "string"
+    },
+    "output": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "Parsed structured output, if any."
+    },
+    "fallback_from": {
+      "description": "Candidates that failed before this one.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Fallback From",
+      "type": "array"
+    }
+  },
+  "required": [
+    "call",
+    "site",
+    "agent",
+    "provider",
+    "model",
+    "usage",
+    "latency_ms",
+    "output_text"
+  ],
+  "title": "model.call.completed v1 payload",
+  "type": "object"
+}

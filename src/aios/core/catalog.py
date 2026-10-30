@@ -52,6 +52,9 @@ class TaskRequested(Payload):
     step: str | None = Field(
         default=None, description="Workflow step id, when the task belongs to a run."
     )
+    item: int | None = Field(default=None, ge=0, description="Fan-out item index (FR-WF-03).")
+    loop: int = Field(default=0, ge=0, description="Loop iteration of the step.")
+    attempt: int = Field(default=1, ge=1, description="Attempt number of the step.")
     budget: TaskBudget | None = None
 
 
@@ -72,6 +75,17 @@ class TaskFailed(Payload):
     error: ErrorInfo
 
 
+# --------------------------------------------------------------------------- app
+
+
+class AppRequestReceived(Payload):
+    entrypoint: Literal["chat", "event"] = "chat"
+    workflow: str | None = Field(
+        default=None, description="Defaults to the workflow of the App's entrypoint."
+    )
+    input: JsonValue = None
+
+
 # --------------------------------------------------------------------------- run
 
 
@@ -87,6 +101,114 @@ class RunCompleted(Payload):
 
 
 class RunFailed(Payload):
+    error: ErrorInfo
+    usage: Usage | None = None
+
+
+class RunCancelRequested(Payload):
+    reason: str = ""
+
+
+class RunCancelled(Payload):
+    reason: str = ""
+    usage: Usage | None = None
+
+
+# --------------------------------------------------------------------------- step
+
+
+class StepStarted(Payload):
+    step: str
+    attempt: int = Field(default=1, ge=1)
+    loop: int = Field(default=0, ge=0)
+    items: int | None = Field(default=None, ge=0, description="Fan-out size, for dynamic steps.")
+
+
+class StepCompleted(Payload):
+    step: str
+    output: JsonValue = None
+    loop: int = Field(default=0, ge=0)
+    looped: bool = Field(
+        default=False, description="The result sent the run back to an earlier step (onResult)."
+    )
+    loops_exhausted: bool = False
+
+
+class StepFailed(Payload):
+    step: str
+    error: ErrorInfo
+
+
+class StepRetrying(Payload):
+    step: str
+    attempt: int = Field(ge=2, description="The attempt about to start.")
+    error: ErrorInfo
+
+
+# --------------------------------------------------------------------------- agent
+
+
+class AgentLifecycle(Payload):
+    agent: str
+    instance: str
+    capabilities: list[str] = []
+
+
+# --------------------------------------------------------------------------- model, tool
+
+
+class ModelCallCompleted(Payload):
+    call: int = Field(ge=0, description="Index of the call within the task execution.")
+    site: str = Field(description="Call-site key (aios.core.ports.CallSite.key).")
+    agent: str
+    step: str | None = None
+    task: str | None = Field(default=None, description="Routing hint the policy resolved.")
+    provider: str
+    model: str
+    usage: Usage
+    latency_ms: float = Field(ge=0)
+    stop_reason: str | None = None
+    output_text: str = Field(description="The recorded completion (ADR-010), for replay.")
+    output: JsonValue = Field(default=None, description="Parsed structured output, if any.")
+    fallback_from: list[str] = Field(
+        default_factory=list, description="Candidates that failed before this one."
+    )
+
+
+class ModelCallFailed(Payload):
+    call: int = Field(ge=0)
+    site: str
+    agent: str
+    step: str | None = None
+    task: str | None = None
+    error: ErrorInfo
+    candidates: list[str] = []
+
+
+class ToolCallRequested(Payload):
+    call: int = Field(ge=0)
+    site: str
+    tool: str
+    agent: str
+    step: str | None = None
+    arguments: JsonValue = None
+    idempotency_key: str | None = None
+
+
+class ToolCallCompleted(Payload):
+    call: int = Field(ge=0)
+    site: str
+    tool: str
+    provider: str
+    latency_ms: float = Field(ge=0)
+    output: JsonValue = None
+    untrusted: bool = True
+
+
+class ToolCallFailed(Payload):
+    call: int = Field(ge=0)
+    site: str
+    tool: str
     error: ErrorInfo
 
 
@@ -180,7 +302,12 @@ _SECURITY = "Security Kernel"
 _FABRIC = "Event Fabric"
 
 STANDARD_EVENTS: tuple[EventSpec, ...] = (
-    _spec("app.request.received", _ACCESS, "A user or trigger asked an App for something."),
+    _spec(
+        "app.request.received",
+        _ACCESS,
+        "A user or trigger asked an App for something.",
+        AppRequestReceived,
+    ),
     _spec("app.response.ready", _ACCESS, "The App's response is ready to stream to the caller."),
     _spec("app.installed", _CONTROL, "An App was installed into a tenant."),
     _spec("app.upgraded", _CONTROL, "An installed App moved to a new version."),
@@ -190,12 +317,18 @@ STANDARD_EVENTS: tuple[EventSpec, ...] = (
     _spec("run.resumed", _WORKFLOW, "A paused run continued."),
     _spec("run.completed", _WORKFLOW, "A run finished successfully.", RunCompleted),
     _spec("run.failed", _WORKFLOW, "A run failed.", RunFailed),
-    _spec("run.cancelled", _WORKFLOW, "A run was cancelled."),
+    _spec(
+        "run.cancel.requested",
+        f"{_ACCESS}, {_CONTROL}",
+        "Asks to cancel a run.",
+        RunCancelRequested,
+    ),
+    _spec("run.cancelled", _WORKFLOW, "A run was cancelled.", RunCancelled),
     _spec("step.scheduled", _WORKFLOW, "A step is ready to run."),
-    _spec("step.started", _WORKFLOW, "A step started."),
-    _spec("step.completed", _WORKFLOW, "A step finished; its output is recorded."),
-    _spec("step.failed", _WORKFLOW, "A step failed."),
-    _spec("step.retrying", _WORKFLOW, "A failed step will be retried."),
+    _spec("step.started", _WORKFLOW, "A step started.", StepStarted),
+    _spec("step.completed", _WORKFLOW, "A step finished; its output is recorded.", StepCompleted),
+    _spec("step.failed", _WORKFLOW, "A step failed.", StepFailed),
+    _spec("step.retrying", _WORKFLOW, "A failed step will be retried.", StepRetrying),
     _spec(
         "task.requested",
         _WORKFLOW,
@@ -206,19 +339,34 @@ STANDARD_EVENTS: tuple[EventSpec, ...] = (
     _spec("task.claimed", _KERNEL, "An agent instance took the task.", TaskClaimed),
     _spec("task.completed", _AGENTS, "The task's output.", TaskCompleted),
     _spec("task.failed", _AGENTS, "The task failed.", TaskFailed),
-    _spec("agent.lifecycle.registered", _KERNEL, "Agent lifecycle transition (FR-AGT-03)."),
-    _spec("agent.lifecycle.starting", _KERNEL, "Agent lifecycle transition."),
-    _spec("agent.lifecycle.ready", _KERNEL, "Agent lifecycle transition."),
-    _spec("agent.lifecycle.busy", _KERNEL, "Agent lifecycle transition."),
-    _spec("agent.lifecycle.suspended", _KERNEL, "Agent lifecycle transition."),
-    _spec("agent.lifecycle.draining", _KERNEL, "Agent lifecycle transition."),
-    _spec("agent.lifecycle.stopped", _KERNEL, "Agent lifecycle transition."),
-    _spec("agent.lifecycle.failed", _KERNEL, "Agent lifecycle transition."),
-    _spec("model.call.completed", _MODELS, "Summary of a model call: model, tokens, cost."),
-    _spec("model.call.failed", _MODELS, "A model call failed after fallbacks."),
-    _spec("tool.call.requested", _TOOLS, "A tool invocation, before the policy decision."),
-    _spec("tool.call.completed", _TOOLS, "A tool returned."),
-    _spec("tool.call.failed", _TOOLS, "A tool failed or was denied."),
+    _spec(
+        "agent.lifecycle.registered",
+        _KERNEL,
+        "Agent lifecycle transition (FR-AGT-03).",
+        AgentLifecycle,
+    ),
+    _spec("agent.lifecycle.starting", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec("agent.lifecycle.ready", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec("agent.lifecycle.busy", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec("agent.lifecycle.suspended", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec("agent.lifecycle.draining", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec("agent.lifecycle.stopped", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec("agent.lifecycle.failed", _KERNEL, "Agent lifecycle transition.", AgentLifecycle),
+    _spec(
+        "model.call.completed",
+        _MODELS,
+        "Summary of a model call: model, tokens, cost, and the recorded output.",
+        ModelCallCompleted,
+    ),
+    _spec("model.call.failed", _MODELS, "A model call failed after fallbacks.", ModelCallFailed),
+    _spec(
+        "tool.call.requested",
+        _TOOLS,
+        "A tool invocation, before the policy decision (an audit record of the request).",
+        ToolCallRequested,
+    ),
+    _spec("tool.call.completed", _TOOLS, "A tool returned.", ToolCallCompleted),
+    _spec("tool.call.failed", _TOOLS, "A tool failed or was denied.", ToolCallFailed),
     _spec("memory.item.written", _MEMORY, "A memory item was stored."),
     _spec("memory.recalled", _MEMORY, "A context pack was assembled for an agent."),
     _spec("memory.item.forgotten", _MEMORY, "A memory item was erased (GDPR forget)."),

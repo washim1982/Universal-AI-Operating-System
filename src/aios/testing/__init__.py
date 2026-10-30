@@ -38,11 +38,23 @@ def make_event(
     return Event.model_validate(attributes)
 
 
-def task_request(capability: str, input: Any = None, **fields: Any) -> Event:
-    """A ``task.requested`` command for ``capability``."""
+def task_request(
+    capability: str,
+    input: Any = None,
+    *,
+    step: str | None = None,
+    item: int | None = None,
+    **fields: Any,
+) -> Event:
+    """A ``task.requested`` command for ``capability``; ``fields`` override envelope attributes."""
+    data: dict[str, Any] = {"capability": capability, "input": input}
+    if step is not None:
+        data["step"] = step
+    if item is not None:
+        data["item"] = item
     return make_event(
         "task.requested",
-        {"capability": capability, "input": input},
+        data,
         run_id=fields.pop("run_id", None) or new_ulid(),
         **fields,
     )

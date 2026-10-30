@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/manifests/model-policy/v1alpha1",
+  "$defs": {
+    "DataClass": {
+      "description": "Data classification labels, least to most sensitive (FR-SEC-11).",
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "ModelBudgets": {
+      "additionalProperties": false,
+      "properties": {
+        "perRunUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perrunusd"
+        },
+        "perTenantMonthlyUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pertenantmonthlyusd"
+        },
+        "onSoftLimit": {
+          "default": "warn",
+          "enum": [
+            "downgrade",
+            "warn",
+            "deny"
+          ],
+          "title": "Onsoftlimit",
+          "type": "string"
+        }
+      },
+      "title": "ModelBudgets",
+      "type": "object"
+    },
+    "ModelDefault": {
+      "additionalProperties": false,
+      "properties": {
+        "candidates": {
+          "items": {
+            "pattern": "^[a-z0-9-]+/[A-Za-z0-9._:<>-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Candidates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidates"
+      ],
+      "title": "ModelDefault",
+      "type": "object"
+    },
+    "ModelMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task"
+        },
+        "dataClass": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        }
+      },
+      "title": "ModelMatch",
+      "type": "object"
+    },
+    "ModelPolicySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ModelRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "default": {
+          "$ref": "#/$defs/ModelDefault"
+        },
+        "fallback": {
+          "default": "next-candidate",
+          "enum": [
+            "next-candidate",
+            "none"
+          ],
+          "title": "Fallback",
+          "type": "string"
+        },
+        "retries": {
+          "$ref": "#/$defs/ModelRetries"
+        },
+        "budgets": {
+          "$ref": "#/$defs/ModelBudgets"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "ModelPolicySpec",
+      "type": "object"
+    },
+    "ModelRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment": {
+          "anyOf": [
+            {
+              "enum": [
+                "public",
+                "private"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment"
+        }
+      },
+      "title": "ModelRequirement",
+      "type": "object"
+    },
+    "ModelRetries": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "default": 2,
+          "minimum": 0,
+          "title": "Max",
+          "type": "integer"
+        },
+        "backoff": {
+          "default": "exponential",
+          "enum": [
+            "exponential",
+            "none"
+          ],
+          "title": "Backoff",
+          "type": "string"
+        }
+      },
+      "title": "ModelRetries",
+      "type": "object"
+    },
+    "ModelRule": {
+      "additionalProperties": false,
+      "properties": {
+        "match": {
+          "$ref": "#/$defs/ModelMatch"
+        },
+        "require": {
+          "$ref": "#/$defs/ModelRequirement"
+        },
+        "candidates": {
+          "items": {
+            "pattern": "^[a-z0-9-]+/[A-Za-z0-9._:<>-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Candidates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidates"
+      ],
+      "title": "ModelRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Requirements §7.10: declarative model routing (FR-MOD-03), read by the Model Kernel.",
+  "properties": {
+    "apiVersion": {
+      "const": "aios/v1alpha1",
+      "default": "aios/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "ModelPolicy",
+      "default": "ModelPolicy",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/ModelPolicySpec"
+    }
+  },
+  "required": [
+    "metadata",
+    "spec"
+  ],
+  "title": "AIOS ModelPolicy manifest (aios/v1alpha1)",
+  "type": "object"
+}

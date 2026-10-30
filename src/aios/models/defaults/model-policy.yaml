@@ -1,0 +1,21 @@
+# The default model routing policy (requirements §7.10). Tenants override it by applying their
+# own ModelPolicy named "default"; Apps choose a policy with spec.modelPolicy.
+apiVersion: aios/v1alpha1
+kind: ModelPolicy
+metadata: { name: default, version: 1.0.0 }
+spec:
+  rules:
+    - match: { dataClass: restricted }
+      require: { deployment: private }        # never leaves the tenant's infrastructure
+      candidates: [private/<open-weights-model>]
+    - match: { task: coding }
+      candidates: [anthropic/claude-sonnet-5-5, openai/<coding-model>]
+    - match: { task: reasoning }
+      candidates: [anthropic/claude-opus-5-5, openai/<reasoning-model>]
+    - match: { task: classification }
+      candidates: [anthropic/claude-haiku-5-5, private/<small-model>]
+  default:
+    candidates: [anthropic/claude-sonnet-5-5, google/<general-model>]
+  fallback: next-candidate                    # on error, timeout or rate limit
+  retries: { max: 2, backoff: exponential }
+  budgets: { perRunUSD: 2.00, perTenantMonthlyUSD: 5000, onSoftLimit: downgrade }

@@ -38,6 +38,13 @@ uv run aios specs check
 uv run pytest --cov --cov-fail-under=80
 ```
 
+The PostgreSQL conformance and acceptance tests run when `AIOS_TEST_DATABASE_URL` points at a
+PostgreSQL 17 database, for example the one in `deploy/compose`:
+
+```bash
+AIOS_TEST_DATABASE_URL=postgresql://aios:XXXXXX@localhost:5432/aios uv run pytest tests/conformance tests/e2e
+```
+
 ## What goes where
 
 - **Design changes** start as an ADR in [docs/adr/](docs/adr/) (copy the template). Accepted

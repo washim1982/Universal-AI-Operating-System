@@ -10,7 +10,8 @@ htmlcov
 tests
 benchmarks
 docs
-apps
+apps/**
+!apps/*/pyproject.toml
 console
 deploy
 specs

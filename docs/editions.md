@@ -45,9 +45,11 @@ the other way.
 ## Dependencies and contributions
 
 - Core's runtime dependencies use permissive licenses compatible with Apache-2.0 (MIT, BSD,
-  Apache-2.0, ISC, PSF and similar). `tests/unit/test_licenses.py` enforces this. A copyleft
-  dependency (GPL, AGPL, LGPL) needs an ADR first. For example, the PostgreSQL adapter uses
-  `asyncpg` (Apache-2.0), not `psycopg` (LGPL-3.0).
+  Apache-2.0, ISC, PSF and similar). MPL-2.0 is also allowed for dependencies used unmodified:
+  its copyleft applies only to changes in the MPL files themselves (`certifi`, which every
+  Python HTTP client uses, is MPL-2.0). `tests/unit/test_licenses.py` enforces this. A
+  copyleft dependency (GPL, AGPL, LGPL) needs an ADR first. For example, the PostgreSQL
+  adapter uses `asyncpg` (Apache-2.0), not `psycopg` (LGPL-3.0).
 - Contributions are accepted under the Developer Certificate of Origin, with no CLA
   ([CONTRIBUTING.md](../CONTRIBUTING.md)). The Enterprise edition lives in another repository,
   so Core never needs to be relicensed.

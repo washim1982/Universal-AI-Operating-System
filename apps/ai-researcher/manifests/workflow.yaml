@@ -7,11 +7,12 @@ metadata:
   version: 1.0.0
 spec:
   description: Plan, research in parallel, analyse, draft and review a cited report.
+  output: ${draft.output}                     # the run returns the reviewed report
   steps:
     - id: plan
       type: task
       capability: planning
-      input: { question: "${input.question}" }
+      input: { question: "${input.message}" }   # chat entrypoints send {message}
     - id: research
       type: dynamic
       capability: research.web

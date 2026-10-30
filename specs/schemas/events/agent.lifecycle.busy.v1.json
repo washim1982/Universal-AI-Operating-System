@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/agent.lifecycle.busy/1",
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "instance": {
+      "title": "Instance",
+      "type": "string"
+    },
+    "capabilities": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    }
+  },
+  "required": [
+    "agent",
+    "instance"
+  ],
+  "title": "agent.lifecycle.busy v1 payload",
+  "type": "object"
+}

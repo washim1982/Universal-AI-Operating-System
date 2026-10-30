@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/run.cancel.requested/1",
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "title": "run.cancel.requested v1 payload",
+  "type": "object"
+}

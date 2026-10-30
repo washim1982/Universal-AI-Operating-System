@@ -88,6 +88,34 @@
       "description": "Workflow step id, when the task belongs to a run.",
       "title": "Step"
     },
+    "item": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fan-out item index (FR-WF-03).",
+      "title": "Item"
+    },
+    "loop": {
+      "default": 0,
+      "description": "Loop iteration of the step.",
+      "minimum": 0,
+      "title": "Loop",
+      "type": "integer"
+    },
+    "attempt": {
+      "default": 1,
+      "description": "Attempt number of the step.",
+      "minimum": 1,
+      "title": "Attempt",
+      "type": "integer"
+    },
     "budget": {
       "anyOf": [
         {

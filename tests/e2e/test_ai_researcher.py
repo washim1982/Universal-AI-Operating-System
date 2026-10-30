@@ -1,21 +1,15 @@
 """Acceptance tests for the AI Researcher reference app (apps/ai-researcher, stories R1-R7).
 
-They are written against the in-process test runtime planned for WP 1.7
-(``aios.testing.runtime.LocalRuntime``: in-memory bus, kernel, engine, recorded model
-cassettes). Each test is expected to fail with ImportError until that runtime exists; once its
-work packages land, remove the module-level xfail and the test must pass.
+They run against the in-process test runtime (``aios.testing.runtime.LocalRuntime``: the real
+kernel, engine, Model Kernel and Tool OS on the in-memory fabric) with recorded model
+cassettes. Written in Phase 0 as expected failures; green since M1.
 """
-# pyright: basic, reportMissingImports=false
+# pyright: basic, reportIndexIssue=false, reportArgumentType=false, reportCallIssue=false, reportOptionalSubscript=false, reportOptionalMemberAccess=false, reportOperatorIssue=false
+# Stories index event payloads (JSON) directly, as a reader of the event log would.
 
 import pytest
 
-pytestmark = [
-    pytest.mark.acceptance,
-    pytest.mark.xfail(
-        raises=ImportError,
-        reason="WP 1.2-1.8: runtime, SDK and reference app not implemented yet",
-    ),
-]
+pytestmark = [pytest.mark.acceptance]
 
 APP = "apps/ai-researcher"
 CASSETTES = "tests/cassettes/ai-researcher"

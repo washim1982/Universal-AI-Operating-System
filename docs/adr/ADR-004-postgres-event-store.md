@@ -76,7 +76,20 @@ superseding ADR revisits the design.
 
 ## Implementation
 
-WP 1.1: `src/aios/fabric/postgres/` on `asyncpg` (Apache-2.0; `psycopg` is LGPL-3.0, see
-ADR-012), migrations, `tests/conformance` parametrized with a testcontainers PostgreSQL,
-`benchmarks/fabric_bench.py --adapter postgres`. The spike's SQL (`spikes/pg_sequencer.py`)
-is the starting point.
+Built in WP 1.1 (M1): `src/aios/fabric/postgres.py` on `asyncpg` (Apache-2.0; `psycopg` is
+LGPL-3.0, see ADR-012), starting from the spike's SQL.
+
+- Decisions 1–6 are implemented. Claim, ack and publish are one SQL statement each on the hot
+  path; `publish_in(connection, …)` publishes inside the caller's transaction (FR-EVT-07);
+  `replay` waits until every committed event is sequenced, so components always read their
+  own writes.
+- The adapter passes the same 37-case conformance suite as the in-memory bus
+  (`tests/conformance/test_postgres_bus.py`, run in CI against a PostgreSQL 17 service), and the
+  AI Researcher's crash test runs on it.
+- **NFR-01 through the full adapter** (`benchmarks/fabric_bench.py --adapter postgres --rate 1000
+  --events 20000 --producers 8 --consumers 8`, Windows laptop, Docker Desktop, 30 Oct 2026):
+  999 events/s sustained, p50 12.4–14.7 ms, p99 18.2–29.3 ms, max 41 ms (two runs). The first
+  version needed about 8 round trips per delivery and topped out at 732 events/s; collapsing
+  the hot path into single statements fixed it.
+- Not yet done: monthly partitions with archival (decision 1, FR-EVT-14), row-level security
+  (decision 7, WP 2.2), and garbage collection of ephemeral groups left by a crashed process.

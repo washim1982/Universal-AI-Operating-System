@@ -1,17 +1,17 @@
 """Acceptance tests for the AI Support Desk reference app (apps/ai-support-desk, stories S1-S7).
 
-Written against the planned in-process test runtime (``aios.testing.runtime``, WP 1.7) with the
-Phase 2 security, memory and approval features. Expected to fail with ImportError until then.
+Written in Phase 0 against the in-process test runtime (``aios.testing.runtime``, M1) and the
+Phase 2 security, memory and approval features. Expected to fail until M2 lands them.
 """
-# pyright: basic, reportMissingImports=false
+# pyright: basic, reportIndexIssue=false, reportArgumentType=false, reportCallIssue=false, reportOptionalSubscript=false, reportOptionalMemberAccess=false, reportOperatorIssue=false, reportAttributeAccessIssue=false
+# The runtime APIs these stories need (memory, approvals, audit) arrive in Phase 2.
 
 import pytest
 
 pytestmark = [
     pytest.mark.acceptance,
     pytest.mark.xfail(
-        raises=ImportError,
-        reason="WP 2.1-2.7: memory, security kernel, approvals and reference app not implemented",
+        reason="WP 2.1-2.7: memory, security kernel, approvals and the app's agents arrive in M2",
     ),
 ]
 

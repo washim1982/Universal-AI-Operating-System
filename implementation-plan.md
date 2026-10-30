@@ -219,6 +219,25 @@ Each work package (WP) lists the requirement ids it **covers**. Parentheses show
 6. **Loop test:** two agents set up to trigger each other stop at the hop limit with `budget.exceeded`.
 7. Line coverage is ≥ 80% on `fabric` and `workflow`, and the conformance suite passes for both bus adapters.
 
+**M1 status (30 Oct 2026): exit criteria met locally; pending the first CI run of the PostgreSQL job.**
+
+| # | Evidence |
+|---|---|
+| 1 | `aios run` through the API (two processes, `aios api` + `aios worker`, on PostgreSQL) returned the cited report; `aios trace` printed the causal tree; Jaeger held the run's trace (23 spans: run, 5 steps, 7 agent tasks, 7 model calls, 3 tool calls). |
+| 2 | `test_survives_a_worker_crash_without_repeating_work` kills the worker mid-fan-out on the in-memory and on the PostgreSQL fabric; no step or model call repeats. Across real processes, a run submitted while the worker process was dead completed once a new worker started. |
+| 3 | `test_model_policy_change_reroutes_the_planner`. |
+| 4 | `test_mcp_tools_are_usable_after_one_config_entry` (a real MCP server over Streamable HTTP). |
+| 5 | 999 events/s sustained, p50 12.4–14.7 ms, p99 18.2–29.3 ms through the full PostgreSQL adapter (ADR-004). The reference machine is still to be chosen; these numbers are from a Windows laptop with Docker Desktop. |
+| 6 | `test_mutually_triggering_agents_stop_at_the_hop_limit`. |
+| 7 | `fabric` and `workflow` at 90% line coverage; the 37-case suite passes on both adapters. |
+
+Open within the Phase 1 work packages (tracked in `docs/traceability.md`): token streaming to
+clients (FR-EVT-17, ADR-010); tool calling, embeddings and streaming in the Model Kernel
+(FR-MOD-01); agent health checks, hot reload and lifecycle operations (FR-AGT-03, 12, 13);
+signals, pause/resume and snapshots in the engine (FR-WF-08, 11); the AsyncAPI document
+(FR-CP-02); and a live recording of the AI Researcher cassette (the committed one is
+synthetic, recorded through the real runtime with a stand-in provider).
+
 ### Phase 2 — Memory, security, human-in-the-loop (8 weeks) → M2 "Safe by Default" (MVP)
 
 **Goal:** a multi-tenant installation where an app with real side effects (refunds) runs safely, with memory, approvals and a full audit trail.

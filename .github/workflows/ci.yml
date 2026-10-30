@@ -71,6 +71,39 @@ jobs:
       - name: Unit, conformance and acceptance tests
         run: uv run pytest --cov --cov-report=term --cov-fail-under=80
 
+  postgres:
+    name: PostgreSQL fabric (conformance, acceptance, NFR-01)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg17
+        env:
+          POSTGRES_USER: aios
+          POSTGRES_DB: aios
+          POSTGRES_HOST_AUTH_METHOD: trust  # a throwaway database on the runner
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aios -d aios"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      AIOS_TEST_DATABASE_URL: postgresql://aios@127.0.0.1:5432/aios
+      AIOS_BENCH_DATABASE_URL: postgresql://aios@127.0.0.1:5432/aios
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Conformance suite and acceptance tests on PostgreSQL (ADR-004, M1 exit 2 and 7)
+        run: uv run pytest tests/conformance tests/e2e -v
+      - name: Fabric benchmark (NFR-01; informational on shared runners)
+        continue-on-error: true
+        run: >-
+          uv run python benchmarks/fabric_bench.py --adapter postgres
+          --events 10000 --rate 1000 --producers 8 --consumers 8
+
   image:
     name: Build image
     needs: [lint, test]

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/step.started/1",
+  "additionalProperties": false,
+  "properties": {
+    "step": {
+      "title": "Step",
+      "type": "string"
+    },
+    "attempt": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Attempt",
+      "type": "integer"
+    },
+    "loop": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Loop",
+      "type": "integer"
+    },
+    "items": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Fan-out size, for dynamic steps.",
+      "title": "Items"
+    }
+  },
+  "required": [
+    "step"
+  ],
+  "title": "step.started v1 payload",
+  "type": "object"
+}

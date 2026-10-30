@@ -423,6 +423,19 @@
           "title": "Steps",
           "type": "array"
         },
+        "output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the run returns, e.g. ${draft.output} (default: the last step's output)",
+          "title": "Output"
+        },
         "budget": {
           "$ref": "#/$defs/WorkflowBudget"
         }

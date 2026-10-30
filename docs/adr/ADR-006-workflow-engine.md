@@ -46,5 +46,17 @@ planners whose output decides the graph.
 
 ## Implementation
 
-WP 1.3: `src/aios/workflow/` (DSL, IR compiler, engine, timers). IR schema v0.1:
+Built in WP 1.3 (M1): `src/aios/workflow/` — the DSL (`dsl.py`), expression bindings
+(`expressions.py`), the run-state fold (`state.py`) and the engine (`engine.py`). IR schema v0.1:
 `aios.core.manifests.WorkflowManifest`.
+
+- The state is rebuilt from the log for every trigger and each decision is published as one
+  atomic batch, so recovery needs no special code; a redelivered trigger whose effects are in
+  the log is skipped. Tested by killing the engine mid-run (`tests/unit/workflow`) and the
+  worker mid-fan-out (`tests/e2e/test_ai_researcher.py`).
+- One readiness rule — a step (re)runs when one of its inputs completed after the step last
+  started — covers sequencing, fan-in and bounded `onResult` loops.
+- Durable timers (step timeouts, run duration) are derived from the log and rebuilt on start.
+- In-flight runs finish on the workflow version they started with (FR-WF-09).
+- Not yet done: snapshots every N events (the fold is O(run length) per trigger), signals and
+  queries, manual pause/resume, `on_error` edges and sub-graph expansion from a planner.

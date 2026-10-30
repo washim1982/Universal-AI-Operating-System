@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/app.request.received/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entrypoint": {
+      "default": "chat",
+      "enum": [
+        "chat",
+        "event"
+      ],
+      "title": "Entrypoint",
+      "type": "string"
+    },
+    "workflow": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Defaults to the workflow of the App's entrypoint.",
+      "title": "Workflow"
+    },
+    "input": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null
+    }
+  },
+  "title": "app.request.received v1 payload",
+  "type": "object"
+}

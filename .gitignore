@@ -16,7 +16,8 @@ coverage.xml
 htmlcov/
 .pyright/
 
-# Local configuration and secrets
+# Local configuration, secrets and runtime data
+.aios/
 .env
 deploy/compose/.env
 *.local.yaml

@@ -1,11 +1,17 @@
 # Reference app: AI Researcher
 
 **Proves (M1 "First Light"):** planning, parallel fan-out, tools, model routing and durability.
-Read-only, so low risk. Built in WP 1.8; specified here in Phase 0 (WP 0.5).
+Read-only, so low risk. Specified in Phase 0 (WP 0.5), built in WP 1.8.
 
-Manifests: [manifests/](manifests/) (validated in CI by `tests/unit/test_docs.py`).
-Acceptance tests: [tests/e2e/test_ai_researcher.py](../../tests/e2e/test_ai_researcher.py),
-marked expected-to-fail until their work packages land.
+Manifests: [manifests/](manifests/) (validated in CI by `tests/unit/test_docs.py`). Agents:
+[src/ai_researcher/agents.py](src/ai_researcher/agents.py). Acceptance tests:
+[tests/e2e/test_ai_researcher.py](../../tests/e2e/test_ai_researcher.py) — all seven pass
+since M1, on the in-memory and the PostgreSQL fabric.
+
+```bash
+uv run aios dev --app apps/ai-researcher --cassettes tests/cassettes/ai-researcher
+uv run aios run ai-researcher "What changed in the OpenTelemetry GenAI semantic conventions in 2026?"
+```
 
 ## Shape
 
@@ -31,5 +37,5 @@ Tools: `search.web.query`, `http.page.fetch` (domain allowlist).
 | R6 | As a platform owner, runaway agents can't loop forever. | Two agents that trigger each other stop at the hop limit with `budget.exceeded` (M1 exit 6). | `test_mutually_triggering_agents_stop_at_the_hop_limit` | WP 1.1, 1.2 |
 | R7 | As a finance owner, I can see what each run cost. | Every `model.call.completed` carries tokens and cost; the run total equals their sum (NFR-14). | `test_run_cost_is_the_sum_of_model_calls` | WP 1.4, 1.6 |
 
-Model calls in these tests use recorded cassettes (implementation plan §8); live-provider runs
-happen nightly.
+Model and search calls in these tests replay [a recorded cassette](../../tests/cassettes/ai-researcher/);
+live-provider runs are planned nightly (implementation plan §8).

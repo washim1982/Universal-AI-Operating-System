@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/tool.call.requested/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "call": {
+      "minimum": 0,
+      "title": "Call",
+      "type": "integer"
+    },
+    "site": {
+      "title": "Site",
+      "type": "string"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "agent": {
+      "title": "Agent",
+      "type": "string"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Step"
+    },
+    "arguments": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Idempotency Key"
+    }
+  },
+  "required": [
+    "call",
+    "site",
+    "tool",
+    "agent"
+  ],
+  "title": "tool.call.requested v1 payload",
+  "type": "object"
+}

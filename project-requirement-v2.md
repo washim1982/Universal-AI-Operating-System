@@ -815,7 +815,7 @@ unless { context.approved };
 ```yaml
 apiVersion: aios/v1alpha1
 kind: ModelPolicy
-metadata: { name: default }
+metadata: { name: default, version: 1.0.0 }
 spec:
   rules:
     - match: { dataClass: restricted }

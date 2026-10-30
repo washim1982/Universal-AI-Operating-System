@@ -11,15 +11,20 @@ from packaging.requirements import Requirement
 ROOT = Path(__file__).resolve().parents[2]
 
 PERMISSIVE = frozenset(
-    {"0BSD", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "PSF-2.0", "Zlib"}
+    {"0BSD", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MIT-0", "PSF-2.0", "Zlib"}
+    # MPL-2.0 is file-level copyleft: using it unmodified places no obligation on our code.
+    # It is allowed for dependencies (certifi, under every HTTP client); see docs/editions.md.
+    | {"MPL-2.0"}
 )
 _CLASSIFIERS = {
     "License :: OSI Approved :: Apache Software License": "Apache-2.0",
     "License :: OSI Approved :: BSD License": "BSD-3-Clause",
     "License :: OSI Approved :: ISC License (ISCL)": "ISC",
     "License :: OSI Approved :: MIT License": "MIT",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
     "License :: OSI Approved :: Python Software Foundation License": "PSF-2.0",
 }
+_LEGACY_NAMES = {"3-Clause BSD License": "BSD-3-Clause"}
 
 
 def _license(name: str) -> str | None:
@@ -31,8 +36,9 @@ def _license(name: str) -> str | None:
     for classifier in metadata.get_all("Classifier") or []:
         if classifier in _CLASSIFIERS:
             return _CLASSIFIERS[classifier]
-    if (legacy := (metadata.get("License") or "").strip()) in PERMISSIVE:
-        return legacy
+    legacy = (metadata.get("License") or "").strip()
+    if legacy in PERMISSIVE or legacy in _LEGACY_NAMES:
+        return _LEGACY_NAMES.get(legacy, legacy)
     for file in dist.files or []:
         if "LICENSE" in file.name.upper():
             text = file.read_text() or ""
@@ -40,6 +46,8 @@ def _license(name: str) -> str | None:
                 return "Apache-2.0"
             if "Permission is hereby granted, free of charge" in text:
                 return "MIT"
+            if "Redistribution and use in source and binary forms" in text:
+                return "BSD-3-Clause"
     return None
 
 

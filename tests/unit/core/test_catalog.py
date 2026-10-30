@@ -17,7 +17,12 @@ def test_every_reserved_domain_has_events() -> None:
 
 def test_commands_are_the_requested_events() -> None:
     commands = {s.type for s in catalog.STANDARD_EVENTS if s.kind is EventKind.COMMAND}
-    assert commands == {"task.requested", "tool.call.requested", "approval.requested"}
+    assert commands == {
+        "task.requested",
+        "tool.call.requested",
+        "approval.requested",
+        "run.cancel.requested",
+    }
 
 
 def test_route_by_names_a_payload_field() -> None:

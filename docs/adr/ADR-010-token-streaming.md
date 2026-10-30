@@ -38,4 +38,7 @@ audit trail, and add latency to every token.
 
 ## Implementation
 
-WP 1.4 (Model Kernel streaming) and WP 1.7 (API SSE endpoint).
+Not built yet. M1 delivers the durable half — every model call is published as
+`model.call.completed` with its full recorded output, and the API streams a run's events over
+SSE (`GET /v1/apps/{app}/runs/{run}/events`) — but provider streaming and the per-call token
+channel (FR-EVT-17) remain open in WP 1.4 / 1.7.

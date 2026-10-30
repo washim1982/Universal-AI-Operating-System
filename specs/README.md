@@ -10,7 +10,7 @@ they are stale.
 | Event envelope | [event-envelope.md](event-envelope.md), [schemas/envelope.v1.json](schemas/envelope.v1.json) (generated) | v0.1 draft — ADR-002 |
 | Topic grammar | [topic-grammar.md](topic-grammar.md) | v0.1 draft — ADR-003 |
 | Standard event catalog | [event-catalog.md](event-catalog.md), [schemas/events/](schemas/events/) (generated) | v0.1 draft |
-| Agent, App, Workflow, Policy manifests | [manifests.md](manifests.md), [schemas/manifests/](schemas/manifests/) (generated) | `aios/v1alpha1` |
+| Agent, App, Workflow, Policy, ModelPolicy manifests | [manifests.md](manifests.md), [schemas/manifests/](schemas/manifests/) (generated) | `aios/v1alpha1` |
 | Cedar schema for compiled policies | [policy/aios.cedarschema](policy/aios.cedarschema) (generated) | v0.1 — ADR-007 |
 
 ## Versioning rules

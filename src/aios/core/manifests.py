@@ -379,9 +379,16 @@ class WorkflowBudget(_Model):
     max_steps: int | None = Field(default=None, ge=1)
 
 
+_STEP_REFERENCE = re.compile(r"\$\{(?!input\b)([a-z0-9-]+)\.output\b[^}]*\}")
+
+
 class WorkflowSpec(_Model):
     description: str = ""
     steps: list[Step] = Field(min_length=1)
+    output: str | None = Field(
+        default=None,
+        description="What the run returns, e.g. ${draft.output} (default: the last step's output)",
+    )
     budget: WorkflowBudget = Field(default_factory=WorkflowBudget)
 
     @model_validator(mode="after")
@@ -392,26 +399,36 @@ class WorkflowSpec(_Model):
                 raise ValueError(f"duplicate step id {step.id!r}")
             position[step.id] = index
         for index, step in enumerate(self.steps):
-            # `needs` may only point backwards, so the forward graph is acyclic by construction;
-            # loops are explicit, bounded on_result back-edges.
-            for dependency in step.needs or []:
-                if dependency not in position:
-                    raise ValueError(f"step {step.id!r} needs unknown step {dependency!r}")
-                if position[dependency] >= index:
-                    raise ValueError(f"step {step.id!r} needs later step {dependency!r}")
-            if isinstance(step, TaskStep):
-                for target in step.on_result.values():
-                    if target not in position or position[target] >= index:
-                        raise ValueError(f"step {step.id!r} on_result must target an earlier step")
-                if step.on_result and step.max_loops == 0:
-                    raise ValueError(f"step {step.id!r} has on_result but max_loops is 0")
-            if isinstance(step, DynamicStep):
-                source = step.from_plan.split(".", 1)[0]
-                if source not in position or position[source] >= index:
-                    raise ValueError(
-                        f"step {step.id!r} from_plan must read an earlier step: {step.from_plan!r}"
-                    )
+            _check_step(step, index, position)
+        for referenced in _STEP_REFERENCE.findall(self.output or ""):
+            if referenced not in position:
+                raise ValueError(f"workflow output reads unknown step {referenced!r}")
         return self
+
+
+def _check_step(step: Step, index: int, position: dict[str, int]) -> None:
+    def earlier(step_id: str) -> bool:
+        return step_id in position and position[step_id] < index
+
+    # `needs` may only point backwards, so the forward graph is acyclic by construction;
+    # loops are explicit, bounded on_result back-edges.
+    for dependency in step.needs or []:
+        if dependency not in position:
+            raise ValueError(f"step {step.id!r} needs unknown step {dependency!r}")
+        if not earlier(dependency):
+            raise ValueError(f"step {step.id!r} needs later step {dependency!r}")
+    if isinstance(step, TaskStep):
+        if not all(earlier(target) for target in step.on_result.values()):
+            raise ValueError(f"step {step.id!r} on_result must target an earlier step")
+        if step.on_result and step.max_loops == 0:
+            raise ValueError(f"step {step.id!r} has on_result but max_loops is 0")
+    for referenced in _STEP_REFERENCE.findall(str(getattr(step, "input", ""))):
+        if not earlier(referenced):
+            raise ValueError(f"step {step.id!r} input reads unknown or later {referenced!r}")
+    if isinstance(step, DynamicStep) and not earlier(step.from_plan.split(".", 1)[0]):
+        raise ValueError(
+            f"step {step.id!r} from_plan must read an earlier step: {step.from_plan!r}"
+        )
 
 
 class WorkflowManifest(_Model):
@@ -571,9 +588,69 @@ class PolicyManifest(_Model):
     spec: PolicySpec
 
 
+# --------------------------------------------------------------------------- ModelPolicy
+
+Candidate = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-z0-9-]+/[A-Za-z0-9._:<>-]+$"),
+    WithJsonSchema({"type": "string", "pattern": r"^[a-z0-9-]+/[A-Za-z0-9._:<>-]+$"}),
+]
+"""``<provider>/<model>``; ``<…>`` placeholders are filled from the model registry."""
+
+
+class ModelMatch(_Model):
+    task: str | None = None
+    data_class: DataClass | None = None
+    agent: Name | None = None
+
+
+class ModelRequirement(_Model):
+    deployment: Literal["public", "private"] | None = None
+
+
+class ModelRule(_Model):
+    match: ModelMatch = Field(default_factory=ModelMatch)
+    require: ModelRequirement = Field(default_factory=ModelRequirement)
+    candidates: list[Candidate] = Field(min_length=1)
+
+
+class ModelDefault(_Model):
+    candidates: list[Candidate] = Field(min_length=1)
+
+
+class ModelRetries(_Model):
+    max: int = Field(default=2, ge=0)
+    backoff: Literal["exponential", "none"] = "exponential"
+
+
+class ModelBudgets(_Model):
+    per_run_usd: float | None = Field(default=None, ge=0, alias="perRunUSD")
+    per_tenant_monthly_usd: float | None = Field(default=None, ge=0, alias="perTenantMonthlyUSD")
+    on_soft_limit: Literal["downgrade", "warn", "deny"] = "warn"
+
+
+class ModelPolicySpec(_Model):
+    rules: list[ModelRule] = []
+    default: ModelDefault
+    fallback: Literal["next-candidate", "none"] = "next-candidate"
+    retries: ModelRetries = Field(default_factory=ModelRetries)
+    budgets: ModelBudgets = Field(default_factory=ModelBudgets)
+
+
+class ModelPolicyManifest(_Model):
+    """Requirements §7.10: declarative model routing (FR-MOD-03), read by the Model Kernel."""
+
+    model_config = ConfigDict(title="AIOS ModelPolicy manifest (aios/v1alpha1)")
+
+    api_version: Literal["aios/v1alpha1"] = API_VERSION
+    kind: Literal["ModelPolicy"] = "ModelPolicy"
+    metadata: Metadata
+    spec: ModelPolicySpec
+
+
 # --------------------------------------------------------------------------- loading
 
-AnyManifest = AgentManifest | AppManifest | WorkflowManifest | PolicyManifest
+AnyManifest = AgentManifest | AppManifest | WorkflowManifest | PolicyManifest | ModelPolicyManifest
 Manifest = Annotated[AnyManifest, Field(discriminator="kind")]
 _MANIFEST = TypeAdapter[AnyManifest](Manifest)
 

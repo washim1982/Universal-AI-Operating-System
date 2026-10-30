@@ -8,7 +8,7 @@ defines a schema.
 
 | Type | Kind | Emitted by | Payload schema | Description |
 |---|---|---|---|---|
-| `app.request.received` | fact | Access layer | *pending* | A user or trigger asked an App for something. |
+| `app.request.received` | fact | Access layer | [app.request.received.v1](schemas/events/app.request.received.v1.json) | A user or trigger asked an App for something. |
 | `app.response.ready` | fact | Access layer | *pending* | The App's response is ready to stream to the caller. |
 | `app.installed` | fact | Control plane | *pending* | An App was installed into a tenant. |
 | `app.upgraded` | fact | Control plane | *pending* | An installed App moved to a new version. |
@@ -18,29 +18,30 @@ defines a schema.
 | `run.resumed` | fact | Workflow Engine | *pending* | A paused run continued. |
 | `run.completed` | fact | Workflow Engine | [run.completed.v1](schemas/events/run.completed.v1.json) | A run finished successfully. |
 | `run.failed` | fact | Workflow Engine | [run.failed.v1](schemas/events/run.failed.v1.json) | A run failed. |
-| `run.cancelled` | fact | Workflow Engine | *pending* | A run was cancelled. |
+| `run.cancel.requested` | command | Access layer, Control plane | [run.cancel.requested.v1](schemas/events/run.cancel.requested.v1.json) | Asks to cancel a run. |
+| `run.cancelled` | fact | Workflow Engine | [run.cancelled.v1](schemas/events/run.cancelled.v1.json) | A run was cancelled. |
 | `step.scheduled` | fact | Workflow Engine | *pending* | A step is ready to run. |
-| `step.started` | fact | Workflow Engine | *pending* | A step started. |
-| `step.completed` | fact | Workflow Engine | *pending* | A step finished; its output is recorded. |
-| `step.failed` | fact | Workflow Engine | *pending* | A step failed. |
-| `step.retrying` | fact | Workflow Engine | *pending* | A failed step will be retried. |
+| `step.started` | fact | Workflow Engine | [step.started.v1](schemas/events/step.started.v1.json) | A step started. |
+| `step.completed` | fact | Workflow Engine | [step.completed.v1](schemas/events/step.completed.v1.json) | A step finished; its output is recorded. |
+| `step.failed` | fact | Workflow Engine | [step.failed.v1](schemas/events/step.failed.v1.json) | A step failed. |
+| `step.retrying` | fact | Workflow Engine | [step.retrying.v1](schemas/events/step.retrying.v1.json) | A failed step will be retried. |
 | `task.requested` | command | Workflow Engine | [task.requested.v1](schemas/events/task.requested.v1.json) | Work for any agent that provides the capability (FR-EVT-16). Routed by `capability`. |
 | `task.claimed` | fact | Agent Kernel | [task.claimed.v1](schemas/events/task.claimed.v1.json) | An agent instance took the task. |
 | `task.completed` | fact | Agents (via the SDK) | [task.completed.v1](schemas/events/task.completed.v1.json) | The task's output. |
 | `task.failed` | fact | Agents (via the SDK) | [task.failed.v1](schemas/events/task.failed.v1.json) | The task failed. |
-| `agent.lifecycle.registered` | fact | Agent Kernel | *pending* | Agent lifecycle transition (FR-AGT-03). |
-| `agent.lifecycle.starting` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `agent.lifecycle.ready` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `agent.lifecycle.busy` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `agent.lifecycle.suspended` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `agent.lifecycle.draining` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `agent.lifecycle.stopped` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `agent.lifecycle.failed` | fact | Agent Kernel | *pending* | Agent lifecycle transition. |
-| `model.call.completed` | fact | Model Kernel | *pending* | Summary of a model call: model, tokens, cost. |
-| `model.call.failed` | fact | Model Kernel | *pending* | A model call failed after fallbacks. |
-| `tool.call.requested` | command | Tool OS | *pending* | A tool invocation, before the policy decision. |
-| `tool.call.completed` | fact | Tool OS | *pending* | A tool returned. |
-| `tool.call.failed` | fact | Tool OS | *pending* | A tool failed or was denied. |
+| `agent.lifecycle.registered` | fact | Agent Kernel | [agent.lifecycle.registered.v1](schemas/events/agent.lifecycle.registered.v1.json) | Agent lifecycle transition (FR-AGT-03). |
+| `agent.lifecycle.starting` | fact | Agent Kernel | [agent.lifecycle.starting.v1](schemas/events/agent.lifecycle.starting.v1.json) | Agent lifecycle transition. |
+| `agent.lifecycle.ready` | fact | Agent Kernel | [agent.lifecycle.ready.v1](schemas/events/agent.lifecycle.ready.v1.json) | Agent lifecycle transition. |
+| `agent.lifecycle.busy` | fact | Agent Kernel | [agent.lifecycle.busy.v1](schemas/events/agent.lifecycle.busy.v1.json) | Agent lifecycle transition. |
+| `agent.lifecycle.suspended` | fact | Agent Kernel | [agent.lifecycle.suspended.v1](schemas/events/agent.lifecycle.suspended.v1.json) | Agent lifecycle transition. |
+| `agent.lifecycle.draining` | fact | Agent Kernel | [agent.lifecycle.draining.v1](schemas/events/agent.lifecycle.draining.v1.json) | Agent lifecycle transition. |
+| `agent.lifecycle.stopped` | fact | Agent Kernel | [agent.lifecycle.stopped.v1](schemas/events/agent.lifecycle.stopped.v1.json) | Agent lifecycle transition. |
+| `agent.lifecycle.failed` | fact | Agent Kernel | [agent.lifecycle.failed.v1](schemas/events/agent.lifecycle.failed.v1.json) | Agent lifecycle transition. |
+| `model.call.completed` | fact | Model Kernel | [model.call.completed.v1](schemas/events/model.call.completed.v1.json) | Summary of a model call: model, tokens, cost, and the recorded output. |
+| `model.call.failed` | fact | Model Kernel | [model.call.failed.v1](schemas/events/model.call.failed.v1.json) | A model call failed after fallbacks. |
+| `tool.call.requested` | command | Tool OS | [tool.call.requested.v1](schemas/events/tool.call.requested.v1.json) | A tool invocation, before the policy decision (an audit record of the request). |
+| `tool.call.completed` | fact | Tool OS | [tool.call.completed.v1](schemas/events/tool.call.completed.v1.json) | A tool returned. |
+| `tool.call.failed` | fact | Tool OS | [tool.call.failed.v1](schemas/events/tool.call.failed.v1.json) | A tool failed or was denied. |
 | `memory.item.written` | fact | Memory OS | *pending* | A memory item was stored. |
 | `memory.recalled` | fact | Memory OS | *pending* | A context pack was assembled for an agent. |
 | `memory.item.forgotten` | fact | Memory OS | *pending* | A memory item was erased (GDPR forget). |

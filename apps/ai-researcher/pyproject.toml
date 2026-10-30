@@ -1,0 +1,17 @@
+[project]
+name = "ai-researcher"
+version = "0.1.0"
+description = "AIOS reference app: answers research questions with a cited report (M1)"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = ["aios"]
+
+[tool.uv.sources]
+aios = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_researcher"]

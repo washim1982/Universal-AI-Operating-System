@@ -38,4 +38,14 @@ structured output, caching, model ids).
 
 ## Implementation
 
-WP 1.4: `src/aios/models/` (registry, router, adapters, accounting, cassettes).
+Built in WP 1.4 (M1): `src/aios/models/` — registry (`registry.py`, defaults in
+`defaults/registry.yaml`), router (`router.py`), adapters (`providers.py`), and the kernel
+(`kernel.py`: reuse of recorded calls, retries, fallback, accounting, `model.call.*` events).
+Cassettes (`aios.core.cassettes`) replay by call site, so a recorded run replays after a routing
+change.
+
+- Adapters: Anthropic (`anthropic` SDK, Messages API with `output_config` structured output and
+  the server-side refusal fallback on models that support it; no sampling parameters, which the
+  API rejects since 2026-10-21), OpenAI and OpenAI-compatible endpoints (`openai` SDK).
+- Not yet done: tool calling, embeddings and token streaming in the provider interface
+  (FR-MOD-01), the Google adapter (WP 2.5), and the model-provider conformance suite.

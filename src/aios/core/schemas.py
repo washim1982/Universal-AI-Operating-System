@@ -16,7 +16,13 @@ from pydantic import BaseModel
 
 from aios.core import catalog
 from aios.core.envelope import Event
-from aios.core.manifests import AgentManifest, AppManifest, PolicyManifest, WorkflowManifest
+from aios.core.manifests import (
+    AgentManifest,
+    AppManifest,
+    ModelPolicyManifest,
+    PolicyManifest,
+    WorkflowManifest,
+)
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
@@ -78,6 +84,9 @@ def render_specs(extra: Mapping[str, str] | None = None) -> dict[str, str]:
         ),
         "schemas/manifests/policy.v1alpha1.json": _schema(
             PolicyManifest, "aios://schemas/manifests/policy/v1alpha1"
+        ),
+        "schemas/manifests/model-policy.v1alpha1.json": _schema(
+            ModelPolicyManifest, "aios://schemas/manifests/model-policy/v1alpha1"
         ),
         "event-catalog.md": _catalog_markdown(),
     }

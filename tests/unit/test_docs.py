@@ -24,7 +24,7 @@ from aios.security.cedar import compile_policies
 ROOT = Path(__file__).resolve().parents[2]
 REQUIREMENTS = ROOT / "project-requirement-v2.md"
 TRACEABILITY = ROOT / "docs" / "traceability.md"
-KINDS = {"Agent", "App", "Workflow", "Policy"}  # manifest kinds aios.core.manifests validates
+KINDS = {"Agent", "App", "Workflow", "Policy", "ModelPolicy"}  # kinds aios.core.manifests validates
 
 
 def _blocks(markdown: str, language: str = "yaml") -> list[str]:
@@ -56,7 +56,7 @@ def test_generated_specs_are_current() -> None:
 
 def test_requirement_manifest_examples_are_valid() -> None:
     examples = _requirement_examples()
-    assert len(examples) >= 3  # §7.3 Agent, §7.4 App, §7.9 Policy
+    assert len(examples) >= 4  # §7.3 Agent, §7.4 App, §7.9 Policy, §7.10 ModelPolicy
     for block in examples:
         assert load_manifests(block)
 

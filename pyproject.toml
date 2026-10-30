@@ -7,8 +7,20 @@ license = "Apache-2.0"  # ADR-012; the Enterprise edition is a separate, commerc
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=2.3,<3",          # Model Kernel adapters over official SDKs (ADR-008)
+    "asyncpg>=0.32",              # PostgreSQL event fabric (ADR-004)
+    "fastapi>=0.162",             # API (WP 1.7)
+    "httpx2>=2.16",               # the HTTP stack of the anthropic, openai and mcp SDKs
+    "jsonschema>=4.26",           # tool input/output schemas (FR-TOOL-01)
+    "mcp>=2.3,<3",                # MCP client (FR-INT-01)
+    "openai>=3.41,<4",
+    "opentelemetry-api>=1.45",
+    "opentelemetry-exporter-otlp-proto-http>=1.45",
+    "opentelemetry-sdk>=1.45",
+    "prometheus-client>=0.26",
     "pydantic>=2.11,<3",
     "pyyaml>=6.0.2",
+    "uvicorn>=0.54",
 ]
 
 [project.optional-dependencies]
@@ -25,8 +37,8 @@ aios = "aios.cli.main:main"
 
 [dependency-groups]
 dev = [
+    "ai-researcher",
     "aios[policy]",
-    "asyncpg>=0.32",  # ADR-004 spike; joins the runtime dependencies in WP 1.1
     "hypothesis>=6.130",
     "import-linter>=2.3",
     "pre-commit>=4.2",
@@ -46,9 +58,15 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/aios"]
 
-# Reference apps become workspace members (apps/*) once they have code (WP 1.8).
 [tool.uv]
 default-groups = ["dev"]
+
+# Reference apps with code are workspace members (ADR-001); the Support Desk joins in WP 2.7.
+[tool.uv.workspace]
+members = ["apps/ai-researcher"]
+
+[tool.uv.sources]
+ai-researcher = { workspace = true }
 
 # ---------------------------------------------------------------- ruff
 
@@ -79,7 +97,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "S311"]
+"tests/**" = ["S101", "PLR2004", "S311", "PLR0911"]
 "tests/e2e/**" = ["PLC0415"]  # imports inside tests, so a missing feature is an expected ImportError
 "src/aios/testing/**" = ["S101"]  # conformance suites are pytest code shipped in the package
 "benchmarks/**" = ["S311", "T201"]

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/step.completed/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "step": {
+      "title": "Step",
+      "type": "string"
+    },
+    "output": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null
+    },
+    "loop": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Loop",
+      "type": "integer"
+    },
+    "looped": {
+      "default": false,
+      "description": "The result sent the run back to an earlier step (onResult).",
+      "title": "Looped",
+      "type": "boolean"
+    },
+    "loops_exhausted": {
+      "default": false,
+      "title": "Loops Exhausted",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "step"
+  ],
+  "title": "step.completed v1 payload",
+  "type": "object"
+}

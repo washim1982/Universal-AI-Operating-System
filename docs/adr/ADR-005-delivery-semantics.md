@@ -1,6 +1,6 @@
 # ADR-005: At-least-once delivery, idempotent consumers, effectively-once side effects
 
-- **Status:** Accepted — 29 Oct 2026, project owner (WP 0.4); implemented by the in-memory adapter and the conformance suite
+- **Status:** Accepted — 29 Oct 2026, project owner (WP 0.4); implemented by both adapters and the conformance suite
 - **Date:** 2026-10-28
 - **Deciders:** Tech lead
 - **Requirements:** FR-EVT-02, 05, 06, 08, 09, 12; NFR-05, NFR-06
@@ -51,4 +51,9 @@ side effects such as refunds happen once.
 ## Implementation
 
 `src/aios/fabric/port.py` (contract, request/reply), `src/aios/fabric/memory.py`,
-`src/aios/testing/fabric.py` (37 conformance cases every adapter must pass).
+`src/aios/fabric/postgres.py`, and `src/aios/testing/fabric.py` (37 conformance cases every
+adapter passes). Idempotent consumers are implemented by checking the run's log rather than a
+separate inbox table: the kernel skips a task whose `task.completed` / `task.failed` is already
+recorded, the engine skips a trigger whose effects are recorded, and the Model Kernel and Tool
+OS return a call recorded at the same call site instead of making it again (NFR-06). Write
+tools receive an idempotency key derived from `(run, step, attempt, name)`.

@@ -8,6 +8,7 @@ increasing, even within the same millisecond.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
 import threading
@@ -69,9 +70,31 @@ def new_ulid() -> str:
     return _generator.new()
 
 
+def ulid_for(seed: str, at: datetime) -> str:
+    """A deterministic ULID: ``at``'s millisecond timestamp and 80 bits derived from ``seed``.
+
+    Use it where a retried operation must produce the same id, e.g. the run an event starts.
+    """
+    ms = int(at.timestamp() * 1000)
+    if not 0 <= ms <= _TIMESTAMP_MAX:
+        raise OverflowError("ULID timestamp out of range")
+    digest = int.from_bytes(hashlib.sha256(seed.encode()).digest()[:10], "big")
+    return _encode(ms << _RANDOM_BITS | digest)
+
+
 def is_ulid(value: str) -> bool:
     """Whether ``value`` is a canonical (uppercase) ULID string."""
     return _ULID_RE.fullmatch(value) is not None
+
+
+def ulid_int(value: str) -> int:
+    """The 128-bit integer a ULID encodes (e.g. to use a run id as a W3C trace id)."""
+    if not is_ulid(value):
+        raise ValueError(f"not a ULID: {value!r}")
+    number = 0
+    for char in value:
+        number = number << 5 | _DECODE[char]
+    return number
 
 
 def ulid_time(value: str) -> datetime:

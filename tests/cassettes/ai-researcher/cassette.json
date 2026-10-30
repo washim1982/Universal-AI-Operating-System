@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "interactions": [
+    {
+      "site": "analyze/analyst-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "05e9af91fe9dd25d",
+      "response": {
+        "text": "{\"findings\": [{\"claim\": \"The conventions remain in Development status, behind an opt-in.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/\"]}, {\"claim\": \"Inference spans and client metrics carry token usage and model identity.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/\", \"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/\"]}, {\"claim\": \"Agent and tool-call spans make multi-step agent runs traceable.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/\"]}], \"contradictions\": []}",
+        "input_tokens": 2104,
+        "output_tokens": 598,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-opus-5-5"
+      }
+    },
+    {
+      "site": "draft/writer-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "6437796182b05d7d",
+      "response": {
+        "text": "{\"title\": \"OpenTelemetry GenAI semantic conventions in 2026\", \"summary\": \"The GenAI conventions are still in Development status. In 2026 they cover inference spans and metrics with token usage, and model agent invocations and tool calls as their own spans.\", \"sections\": [{\"heading\": \"Stability\", \"text\": \"Still Development; adopt behind the opt-in flag.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/\"]}, {\"heading\": \"Spans and metrics\", \"text\": \"Token usage and model identity on spans and metrics.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/\", \"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/\"]}, {\"heading\": \"Agents and tools\", \"text\": \"Agent and tool-call spans show each step of a run.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/\"]}], \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/\", \"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/\", \"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/\", \"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/\"]}",
+        "input_tokens": 1836,
+        "output_tokens": 884,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "site": "plan/planner-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "9ff94006e798c51a",
+      "response": {
+        "text": "{\"tasks\": [{\"question\": \"What is the stability status of the OpenTelemetry GenAI semantic conventions in 2026?\", \"depth\": 2}, {\"question\": \"Which GenAI span and metric attributes were added or renamed in 2026?\", \"depth\": 2}, {\"question\": \"How do the 2026 conventions describe agent and tool-call spans?\", \"depth\": 2}]}",
+        "input_tokens": 912,
+        "output_tokens": 176,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "site": "research#0/research-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "17e7820850af04cb",
+      "response": {
+        "text": "{\"question\": \"What is the stability status of the OpenTelemetry GenAI semantic conventions in 2026?\", \"summary\": \"The GenAI conventions are still marked Development; instrumentations opt in to the latest attribute names with OTEL_SEMCONV_STABILITY_OPT_IN.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/\"]}",
+        "input_tokens": 2380,
+        "output_tokens": 412,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-opus-5-5"
+      }
+    },
+    {
+      "site": "research#0/research-agent/l0a1/tool/0",
+      "kind": "tool",
+      "request_hash": "677944dc8b8d77e2",
+      "response": {
+        "output": [
+          {
+            "title": "OpenTelemetry GenAI semantic conventions (1)",
+            "url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+            "snippet": "Semantic conventions for generative AI systems."
+          }
+        ]
+      }
+    },
+    {
+      "site": "research#1/research-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "229964835ebb45d1",
+      "response": {
+        "text": "{\"question\": \"Which GenAI span and metric attributes were added or renamed in 2026?\", \"summary\": \"Token usage and model attributes are recorded on inference spans, with matching client metrics for token counts and operation duration.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/\", \"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/\"]}",
+        "input_tokens": 2420,
+        "output_tokens": 421,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-opus-5-5"
+      }
+    },
+    {
+      "site": "research#1/research-agent/l0a1/tool/0",
+      "kind": "tool",
+      "request_hash": "4c2080bdf7c32444",
+      "response": {
+        "output": [
+          {
+            "title": "OpenTelemetry GenAI semantic conventions (1)",
+            "url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/",
+            "snippet": "Semantic conventions for generative AI systems."
+          },
+          {
+            "title": "OpenTelemetry GenAI semantic conventions (2)",
+            "url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/",
+            "snippet": "Semantic conventions for generative AI systems."
+          }
+        ]
+      }
+    },
+    {
+      "site": "research#2/research-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "db760f5e0cf48d6d",
+      "response": {
+        "text": "{\"question\": \"How do the 2026 conventions describe agent and tool-call spans?\", \"summary\": \"Agent invocations and tool executions are modelled as their own spans, so a trace shows each agent step and each tool call under it.\", \"sources\": [\"https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/\"]}",
+        "input_tokens": 2460,
+        "output_tokens": 430,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-opus-5-5"
+      }
+    },
+    {
+      "site": "research#2/research-agent/l0a1/tool/0",
+      "kind": "tool",
+      "request_hash": "8f6fdc395ba01cfe",
+      "response": {
+        "output": [
+          {
+            "title": "OpenTelemetry GenAI semantic conventions (1)",
+            "url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/",
+            "snippet": "Semantic conventions for generative AI systems."
+          }
+        ]
+      }
+    },
+    {
+      "site": "review/reviewer-agent/l0a1/model/0",
+      "kind": "model",
+      "request_hash": "892b14e7436c33fa",
+      "response": {
+        "text": "{\"result\": \"approve\", \"notes\": \"Every claim cites a source.\"}",
+        "input_tokens": 1512,
+        "output_tokens": 41,
+        "stop_reason": "end_turn",
+        "latency_ms": 0.0,
+        "model": "claude-haiku-5-5"
+      }
+    }
+  ]
+}

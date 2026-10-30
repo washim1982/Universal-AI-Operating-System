@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3  # exact tag: setup-uv publishes no floating v10 tag
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
@@ -62,7 +62,7 @@ jobs:
             python: "3.12"
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3  # exact tag: setup-uv publishes no floating v10 tag
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}

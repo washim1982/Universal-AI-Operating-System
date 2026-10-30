@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://apps/ai-support-desk/config/0.3.0",
+  "title": "AI Support Desk configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["refundApprovalThresholdUSD"],
+  "properties": {
+    "refundApprovalThresholdUSD": {
+      "type": "number",
+      "minimum": 0,
+      "default": 50,
+      "description": "Refunds above this amount pause the run for approval."
+    },
+    "approverRole": {
+      "type": "string",
+      "default": "support-lead",
+      "description": "Role that approves refunds above the threshold."
+    },
+    "fallbackReply": {
+      "type": "string",
+      "default": "We've passed your request to a specialist who will reply within one business day."
+    }
+  }
+}

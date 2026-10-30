@@ -1,0 +1,59 @@
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: planner-agent, version: 0.1.0 }
+spec:
+  description: Breaks a question into research tasks.
+  runtime: { type: python, entrypoint: ai_researcher.agents:plan }
+  capabilities:
+    - name: planning
+      output: schemas/research_plan.json
+  memory: { read: [session] }
+  model: { task: planning }
+  limits: { maxSteps: 5, maxCostUSD: 0.20, timeout: 2m }
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: research-agent, version: 0.1.0 }
+spec:
+  description: Researches one question on the web.
+  runtime: { type: python, entrypoint: ai_researcher.agents:research }
+  capabilities:
+    - name: research.web
+      input: schemas/research_task.json
+      output: schemas/research_result.json
+  tools:
+    allow: ["search.web.query", "http.page.fetch"]
+  memory: { read: [session, app], write: [session] }
+  model: { task: reasoning }
+  limits: { maxSteps: 20, maxTokens: 200000, maxCostUSD: 1.50, timeout: 5m, concurrency: 10 }
+  scaling: { min: 0, max: 20 }
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: analyst-agent, version: 0.1.0 }
+spec:
+  description: Reconciles findings and flags contradictions.
+  runtime: { type: python, entrypoint: ai_researcher.agents:analyze }
+  capabilities: [{ name: analysis }]
+  model: { task: reasoning }
+  limits: { maxSteps: 5, maxCostUSD: 0.50, timeout: 3m }
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: writer-agent, version: 0.1.0 }
+spec:
+  description: Drafts the cited report.
+  runtime: { type: python, entrypoint: ai_researcher.agents:write }
+  capabilities: [{ name: writing }]
+  model: { task: writing }
+  limits: { maxSteps: 5, maxCostUSD: 0.50, timeout: 3m }
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: reviewer-agent, version: 0.1.0 }
+spec:
+  description: Checks every claim has a source; approves or rejects the draft.
+  runtime: { type: python, entrypoint: ai_researcher.agents:review }
+  capabilities: [{ name: review }]
+  model: { task: classification }
+  limits: { maxSteps: 3, maxCostUSD: 0.10, timeout: 2m }

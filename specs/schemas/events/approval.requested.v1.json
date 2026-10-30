@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/approval.requested/1",
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Approval",
+      "type": "string"
+    },
+    "approvers": {
+      "description": "Principals or role:<name> selectors.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Approvers",
+      "type": "array"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires At"
+    }
+  },
+  "required": [
+    "approval",
+    "approvers",
+    "reason"
+  ],
+  "title": "approval.requested v1 payload",
+  "type": "object"
+}

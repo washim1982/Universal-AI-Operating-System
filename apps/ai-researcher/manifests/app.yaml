@@ -1,0 +1,25 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata:
+  name: ai-researcher
+  version: 0.1.0
+  labels: { reference: "true", milestone: m1 }
+spec:
+  description: Answers research questions with a cited report.
+  entrypoints:
+    - type: chat
+      workflow: research-report
+  agents: [planner-agent, research-agent, analyst-agent, writer-agent, reviewer-agent]
+  workflows: [research-report]
+  tools:
+    - name: search.web.query
+    - name: http.page.fetch
+  memory:
+    scopes: [session, app]
+  permissions:
+    tools: ["search.web.query", "http.page.fetch"]
+    dataClasses: [public, internal]
+  modelPolicy: default
+  budgets:
+    perRunUSD: 3.00
+    monthlyUSD: 200

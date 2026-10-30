@@ -1,0 +1,49 @@
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: triage-agent, version: 0.1.0 }
+spec:
+  description: Classifies the ticket and extracts the customer's request.
+  runtime: { type: python, entrypoint: ai_support_desk.agents:triage }
+  capabilities: [{ name: support.triage }]
+  tools: { allow: ["zendesk.ticket.get"] }
+  memory: { read: [session, user] }
+  model: { task: classification }
+  limits: { maxSteps: 3, maxCostUSD: 0.05, timeout: 1m }
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: kb-agent, version: 0.1.0 }
+spec:
+  description: Finds the knowledge-base articles that answer the ticket.
+  runtime: { type: python, entrypoint: ai_support_desk.agents:search_kb }
+  capabilities: [{ name: support.kb.search }]
+  memory: { read: [app] }
+  model: { task: reasoning }
+  limits: { maxSteps: 5, maxCostUSD: 0.10, timeout: 2m }
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: refund-agent, version: 0.1.0 }
+spec:
+  description: Decides whether a refund is due and requests it.
+  runtime: { type: python, entrypoint: ai_support_desk.agents:resolve }
+  capabilities: [{ name: support.resolve }]
+  tools:
+    allow: ["zendesk.ticket.get", "stripe.refund.create"]
+    deny: ["stripe.customer.delete"]
+  memory: { read: [session, user, app], write: [user] }
+  model: { task: reasoning }
+  limits: { maxSteps: 8, maxCostUSD: 0.20, timeout: 25h }
+  isolation: process
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: { name: reply-agent, version: 0.1.0 }
+spec:
+  description: Writes the customer reply and posts it to the ticket.
+  runtime: { type: python, entrypoint: ai_support_desk.agents:reply }
+  capabilities: [{ name: support.reply }]
+  tools: { allow: ["zendesk.ticket.comment"] }
+  memory: { read: [session, user] }
+  model: { task: writing }
+  limits: { maxSteps: 3, maxCostUSD: 0.05, timeout: 1m }

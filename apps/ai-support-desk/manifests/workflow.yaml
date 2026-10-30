@@ -1,0 +1,24 @@
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata:
+  name: handle-ticket
+  version: 0.3.0
+spec:
+  description: Triage, look up the knowledge base, resolve (possibly with a refund), reply.
+  steps:
+    - id: triage
+      type: task
+      capability: support.triage
+    - id: research
+      type: task
+      capability: support.kb.search
+    - id: resolve
+      type: task
+      capability: support.resolve     # may call stripe.refund.create; policy gates it
+      timeout: 25h                    # long enough to wait for an approval
+    - id: reply
+      type: task
+      capability: support.reply
+  budget:
+    maxCostUSD: 0.50
+    maxDuration: 48h

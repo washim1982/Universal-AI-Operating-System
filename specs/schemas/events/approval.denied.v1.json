@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/approval.denied/1",
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Approval",
+      "type": "string"
+    },
+    "by": {
+      "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+      "title": "By",
+      "type": "string"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "approval",
+    "by"
+  ],
+  "title": "approval.denied v1 payload",
+  "type": "object"
+}

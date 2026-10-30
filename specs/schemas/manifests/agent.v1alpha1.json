@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/manifests/agent/v1alpha1",
+  "$defs": {
+    "AgentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime"
+        },
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/CapabilityDecl"
+          },
+          "minItems": 1,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "subscriptions": {
+          "items": {
+            "maxLength": 255,
+            "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+            "type": "string"
+          },
+          "title": "Subscriptions",
+          "type": "array"
+        },
+        "tools": {
+          "$ref": "#/$defs/ToolAccess"
+        },
+        "memory": {
+          "$ref": "#/$defs/MemoryAccess"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelRequirements"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "scaling": {
+          "$ref": "#/$defs/Scaling"
+        },
+        "isolation": {
+          "default": "process",
+          "enum": [
+            "inprocess",
+            "process",
+            "container",
+            "sandbox"
+          ],
+          "title": "Isolation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime",
+        "capabilities"
+      ],
+      "title": "AgentSpec",
+      "type": "object"
+    },
+    "CapabilityDecl": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 255,
+          "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){0,15}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path or URI of the input JSON Schema",
+          "title": "Input"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path or URI of the output JSON Schema",
+          "title": "Output"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CapabilityDecl",
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "maxSteps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxsteps"
+        },
+        "maxTokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxtokens"
+        },
+        "maxCostUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxcostusd"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "concurrency": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        }
+      },
+      "title": "Limits",
+      "type": "object"
+    },
+    "MemoryAccess": {
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "default": [],
+          "items": {
+            "enum": [
+              "working",
+              "session",
+              "user",
+              "agent",
+              "app",
+              "tenant",
+              "global"
+            ],
+            "type": "string"
+          },
+          "title": "Read",
+          "type": "array"
+        },
+        "write": {
+          "default": [],
+          "items": {
+            "enum": [
+              "working",
+              "session",
+              "user",
+              "agent",
+              "app",
+              "tenant",
+              "global"
+            ],
+            "type": "string"
+          },
+          "title": "Write",
+          "type": "array"
+        }
+      },
+      "title": "MemoryAccess",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "ModelRequirements": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "default": "default",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Policy",
+          "type": "string"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Routing hint resolved by the model policy",
+          "title": "Task"
+        }
+      },
+      "title": "ModelRequirements",
+      "type": "object"
+    },
+    "Runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "pattern": "^(python|container|a2a|adapter:[a-z0-9-]+)$",
+          "title": "Type",
+          "type": "string"
+        },
+        "entrypoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "python: module.path:function",
+          "title": "Entrypoint"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "container: OCI image reference",
+          "title": "Image"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "a2a: the remote agent's base URL",
+          "title": "Url"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Runtime",
+      "type": "object"
+    },
+    "Scaling": {
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Min",
+          "type": "integer"
+        },
+        "max": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Max",
+          "type": "integer"
+        }
+      },
+      "title": "Scaling",
+      "type": "object"
+    },
+    "ToolAccess": {
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "items": {
+            "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+            "type": "string"
+          },
+          "title": "Allow",
+          "type": "array"
+        },
+        "deny": {
+          "items": {
+            "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+            "type": "string"
+          },
+          "title": "Deny",
+          "type": "array"
+        }
+      },
+      "title": "ToolAccess",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "aios/v1alpha1",
+      "default": "aios/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Agent",
+      "default": "Agent",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/AgentSpec"
+    }
+  },
+  "required": [
+    "metadata",
+    "spec"
+  ],
+  "title": "AIOS Agent manifest (aios/v1alpha1)",
+  "type": "object"
+}

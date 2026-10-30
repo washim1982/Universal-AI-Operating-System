@@ -1,0 +1,41 @@
+# Install once: uv run pre-commit install
+# Local hooks run the locked tool versions from uv.lock, so they match CI exactly.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      - id: import-linter
+        name: layering contract (ADR-001)
+        entry: uv run lint-imports
+        language: system
+        pass_filenames: false
+        files: ^src/
+      - id: specs
+        name: generated specs are current
+        entry: uv run aios specs check
+        language: system
+        pass_filenames: false
+        files: ^src/aios/(core|security)/

@@ -1,0 +1,464 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/manifests/workflow/v1alpha1",
+  "$defs": {
+    "ApprovalStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "needs": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Steps that must finish first; defaults to the previous step",
+          "title": "Needs"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "maxAttempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Maxattempts",
+          "type": "integer"
+        },
+        "type": {
+          "const": "approval",
+          "title": "Type",
+          "type": "string"
+        },
+        "approvers": {
+          "items": {
+            "pattern": "^(role|user|group):[A-Za-z0-9._@-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Approvers",
+          "type": "array"
+        },
+        "onTimeout": {
+          "default": "deny",
+          "enum": [
+            "deny",
+            "approve",
+            "escalate"
+          ],
+          "title": "Ontimeout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "approvers"
+      ],
+      "title": "ApprovalStep",
+      "type": "object"
+    },
+    "DynamicStep": {
+      "additionalProperties": false,
+      "description": "Planner-driven fan-out: one task per item in an earlier step's output (FR-WF-03).",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "needs": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Steps that must finish first; defaults to the previous step",
+          "title": "Needs"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "maxAttempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Maxattempts",
+          "type": "integer"
+        },
+        "type": {
+          "const": "dynamic",
+          "title": "Type",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 255,
+          "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+          "title": "Capability",
+          "type": "string"
+        },
+        "fromPlan": {
+          "description": "<earlier step id>.output.<path>, e.g. plan.output.tasks",
+          "minLength": 1,
+          "title": "Fromplan",
+          "type": "string"
+        },
+        "maxParallel": {
+          "default": 5,
+          "minimum": 1,
+          "title": "Maxparallel",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "capability",
+        "fromPlan"
+      ],
+      "title": "DynamicStep",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "TaskStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "needs": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Steps that must finish first; defaults to the previous step",
+          "title": "Needs"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "maxAttempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Maxattempts",
+          "type": "integer"
+        },
+        "type": {
+          "const": "task",
+          "title": "Type",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 255,
+          "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+          "title": "Capability",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "description": "Input bindings",
+          "title": "Input",
+          "type": "object"
+        },
+        "onResult": {
+          "additionalProperties": {
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+          },
+          "description": "Route a result value back to an earlier step",
+          "title": "Onresult",
+          "type": "object"
+        },
+        "maxLoops": {
+          "default": 0,
+          "description": "Bound on on_result back-edges",
+          "minimum": 0,
+          "title": "Maxloops",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "capability"
+      ],
+      "title": "TaskStep",
+      "type": "object"
+    },
+    "ToolStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "needs": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Steps that must finish first; defaults to the previous step",
+          "title": "Needs"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "maxAttempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Maxattempts",
+          "type": "integer"
+        },
+        "type": {
+          "const": "tool",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool": {
+          "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){2}$",
+          "title": "Tool",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "tool"
+      ],
+      "title": "ToolStep",
+      "type": "object"
+    },
+    "WorkflowBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "maxCostUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxcostusd"
+        },
+        "maxDuration": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxduration"
+        },
+        "maxSteps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxsteps"
+        }
+      },
+      "title": "WorkflowBudget",
+      "type": "object"
+    },
+    "WorkflowSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "approval": "#/$defs/ApprovalStep",
+                "dynamic": "#/$defs/DynamicStep",
+                "task": "#/$defs/TaskStep",
+                "tool": "#/$defs/ToolStep"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TaskStep"
+              },
+              {
+                "$ref": "#/$defs/DynamicStep"
+              },
+              {
+                "$ref": "#/$defs/ApprovalStep"
+              },
+              {
+                "$ref": "#/$defs/ToolStep"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "budget": {
+          "$ref": "#/$defs/WorkflowBudget"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "title": "WorkflowSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "aios/v1alpha1",
+      "default": "aios/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Workflow",
+      "default": "Workflow",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/WorkflowSpec"
+    }
+  },
+  "required": [
+    "metadata",
+    "spec"
+  ],
+  "title": "AIOS Workflow manifest (aios/v1alpha1)",
+  "type": "object"
+}

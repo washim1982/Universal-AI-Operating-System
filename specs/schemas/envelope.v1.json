@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/envelope/1",
+  "$defs": {
+    "DataClass": {
+      "description": "Data classification labels, least to most sensitive (FR-SEC-11).",
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "One immutable command or fact.",
+  "properties": {
+    "specversion": {
+      "default": "1.0",
+      "pattern": "^1\\.0$",
+      "title": "Specversion",
+      "type": "string"
+    },
+    "id": {
+      "description": "ULID; unique per event.",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "source": {
+      "description": "URI-reference of the producer, e.g. aios://acme/apps/x/agents/y.",
+      "minLength": 1,
+      "pattern": "^\\S+$",
+      "title": "Source",
+      "type": "string"
+    },
+    "type": {
+      "description": "The logical topic, e.g. task.completed.",
+      "maxLength": 255,
+      "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){1,15}$",
+      "title": "Type",
+      "type": "string"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subject"
+    },
+    "time": {
+      "format": "date-time",
+      "title": "Time",
+      "type": "string"
+    },
+    "datacontenttype": {
+      "default": "application/json",
+      "title": "Datacontenttype",
+      "type": "string"
+    },
+    "dataschema": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dataschema"
+    },
+    "tenantid": {
+      "description": "Set by the fabric/SDK from the caller's scope.",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+      "title": "Tenantid",
+      "type": "string"
+    },
+    "appid": {
+      "description": "Set by the fabric/SDK; 'aios' for tenant-level events.",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+      "title": "Appid",
+      "type": "string"
+    },
+    "runid": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The run this event belongs to.",
+      "title": "Runid"
+    },
+    "correlationid": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Groups a run or a conversation.",
+      "title": "Correlationid"
+    },
+    "causationid": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The event that directly caused this one.",
+      "title": "Causationid"
+    },
+    "hopcount": {
+      "default": 0,
+      "description": "Causal depth, for loop protection (FR-EVT-11).",
+      "minimum": 0,
+      "title": "Hopcount",
+      "type": "integer"
+    },
+    "principal": {
+      "description": "Who acted.",
+      "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+      "title": "Principal",
+      "type": "string"
+    },
+    "onbehalfof": {
+      "anyOf": [
+        {
+          "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "For whom (FR-SEC-05).",
+      "title": "Onbehalfof"
+    },
+    "dataclass": {
+      "$ref": "#/$defs/DataClass",
+      "default": "internal",
+      "description": "Classification (FR-SEC-11)."
+    },
+    "traceparent": {
+      "anyOf": [
+        {
+          "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Traceparent"
+    },
+    "idempotencykey": {
+      "anyOf": [
+        {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Idempotencykey"
+    },
+    "data": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null
+    }
+  },
+  "required": [
+    "source",
+    "type",
+    "tenantid",
+    "appid",
+    "principal"
+  ],
+  "title": "AIOS Event Envelope",
+  "type": "object"
+}

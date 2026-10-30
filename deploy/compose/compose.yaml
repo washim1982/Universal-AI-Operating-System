@@ -1,0 +1,51 @@
+# Local development stack (WP 0.2): PostgreSQL 17 + pgvector, OpenTelemetry Collector, Jaeger.
+#
+#   docker compose -f deploy/compose/compose.yaml up -d
+#   docker compose -f deploy/compose/compose.yaml down        # add -v to drop the database
+#
+# Ports bind to 127.0.0.1 only. Credentials are development defaults; override them in
+# deploy/compose/.env (see .env.example). Never reuse this file for a shared environment.
+name: aios
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17
+    environment:
+      POSTGRES_USER: ${AIOS_PG_USER:-aios}
+      POSTGRES_PASSWORD: ${AIOS_PG_PASSWORD:-XXXXXX}
+      POSTGRES_DB: ${AIOS_PG_DB:-aios}
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - synchronous_commit=on        # NFR-05: no acknowledged event is lost
+    ports:
+      - "127.0.0.1:${AIOS_PG_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.135.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:${AIOS_OTLP_GRPC_PORT:-4317}:4317"   # OTLP gRPC: OTEL_EXPORTER_OTLP_ENDPOINT
+      - "127.0.0.1:${AIOS_OTLP_HTTP_PORT:-4318}:4318"   # OTLP HTTP
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.10.0   # v2 all-in-one, in-memory storage
+    ports:
+      - "127.0.0.1:${AIOS_JAEGER_UI_PORT:-16686}:16686"   # UI: http://localhost:16686
+
+volumes:
+  pgdata:

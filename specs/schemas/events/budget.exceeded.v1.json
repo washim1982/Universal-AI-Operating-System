@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/budget.exceeded/1",
+  "additionalProperties": false,
+  "properties": {
+    "budget": {
+      "enum": [
+        "hops",
+        "steps",
+        "tokens",
+        "cost",
+        "time",
+        "events"
+      ],
+      "title": "Budget",
+      "type": "string"
+    },
+    "limit": {
+      "title": "Limit",
+      "type": "number"
+    },
+    "observed": {
+      "title": "Observed",
+      "type": "number"
+    }
+  },
+  "required": [
+    "budget",
+    "limit",
+    "observed"
+  ],
+  "title": "budget.exceeded v1 payload",
+  "type": "object"
+}

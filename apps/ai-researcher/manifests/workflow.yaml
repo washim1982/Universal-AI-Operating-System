@@ -1,0 +1,35 @@
+# The graph IR the DSL in requirements §7.6 compiles to (without the publish steps: the
+# reference app is read-only).
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata:
+  name: research-report
+  version: 1.0.0
+spec:
+  description: Plan, research in parallel, analyse, draft and review a cited report.
+  steps:
+    - id: plan
+      type: task
+      capability: planning
+      input: { question: "${input.question}" }
+    - id: research
+      type: dynamic
+      capability: research.web
+      fromPlan: plan.output.tasks
+      maxParallel: 5
+      timeout: 5m
+    - id: analyze
+      type: task
+      capability: analysis
+    - id: draft
+      type: task
+      capability: writing
+    - id: review
+      type: task
+      capability: review
+      onResult: { reject: draft }
+      maxLoops: 2
+  budget:
+    maxCostUSD: 3.00
+    maxDuration: 30m
+    maxSteps: 40

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/system.dlq.added/1",
+  "additionalProperties": false,
+  "properties": {
+    "dead_letter": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Dead Letter",
+      "type": "string"
+    },
+    "group": {
+      "title": "Group",
+      "type": "string"
+    },
+    "event": {
+      "description": "Id of the dead-lettered event.",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Event",
+      "type": "string"
+    },
+    "event_type": {
+      "title": "Event Type",
+      "type": "string"
+    },
+    "attempts": {
+      "minimum": 1,
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "dead_at": {
+      "format": "date-time",
+      "title": "Dead At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dead_letter",
+    "group",
+    "event",
+    "event_type",
+    "attempts",
+    "reason",
+    "dead_at"
+  ],
+  "title": "system.dlq.added v1 payload",
+  "type": "object"
+}

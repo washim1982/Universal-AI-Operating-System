@@ -1,0 +1,25 @@
+# Requirements §7.9 format, compiled to Cedar by aios.security.cedar (ADR-007).
+# ${config.*} values come from the App configuration (config.schema.json) at install time.
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata:
+  name: support-desk-policy
+  version: 0.3.0
+spec:
+  subject: { app: ai-support-desk }
+  allow:
+    - action: tool.invoke
+      resource: "zendesk.>"
+    - action: tool.invoke
+      resource: "stripe.refund.create"
+  deny:
+    - action: tool.invoke
+      resource: "stripe.customer.>"
+  requireApproval:
+    - action: tool.invoke
+      resource: "stripe.refund.create"
+      when: { input: { amountUSD: { gt: "${config.refundApprovalThresholdUSD}" } } }
+      approvers: ["role:${config.approverRole}"]
+    - action: tool.invoke
+      when: { sideEffect: [financial, external_comm], contextTainted: true }
+      approvers: ["role:${config.approverRole}"]

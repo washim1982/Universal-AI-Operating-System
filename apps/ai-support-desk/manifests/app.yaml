@@ -1,0 +1,36 @@
+# Requirements §7.4, made concrete.
+apiVersion: aios/v1alpha1
+kind: App
+metadata:
+  name: ai-support-desk
+  version: 0.3.0
+  labels: { reference: "true", milestone: m2 }
+spec:
+  description: Tier-1 customer support. Refunds above a threshold need approval.
+  entrypoints:
+    - type: chat
+      workflow: handle-ticket
+    - type: event
+      on: zendesk.ticket.created
+      workflow: handle-ticket
+  agents: [triage-agent, kb-agent, refund-agent, reply-agent]
+  workflows: [handle-ticket]
+  tools:
+    - provider: zendesk               # MCP server registered by the tenant admin
+    - name: stripe.refund.create
+  memory:
+    scopes: [session, user, app]
+    knowledge:
+      - source: s3://acme-support/kb/
+        scope: app
+  permissions:                        # shown to the tenant admin for consent at install
+    tools: ["zendesk.>", "stripe.refund.create"]
+    dataClasses: [internal, confidential]
+  policies: [support-desk-policy]
+  modelPolicy: default
+  config:
+    schema: config.schema.json
+    secrets: [ZENDESK_TOKEN, STRIPE_KEY]
+  budgets:
+    perRunUSD: 0.50
+    monthlyUSD: 500

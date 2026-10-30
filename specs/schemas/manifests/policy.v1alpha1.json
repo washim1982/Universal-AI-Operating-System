@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/manifests/policy/v1alpha1",
+  "$defs": {
+    "ApprovalRule": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PolicyAction"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "tool.invoke only: a tool name or pattern; omit for every tool",
+          "title": "Resource"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "working",
+                  "session",
+                  "user",
+                  "agent",
+                  "app",
+                  "tenant",
+                  "global"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "memory.read / memory.write only",
+          "title": "Scopes"
+        },
+        "when": {
+          "$ref": "#/$defs/Condition"
+        },
+        "approvers": {
+          "items": {
+            "pattern": "^(role|user|group):[A-Za-z0-9._@-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Approvers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action",
+        "approvers"
+      ],
+      "title": "ApprovalRule",
+      "type": "object"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "description": "One comparison against a tool-input field. Numbers compare with 4 decimal places.",
+      "properties": {
+        "gt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gt"
+        },
+        "gte": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gte"
+        },
+        "lt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lt"
+        },
+        "lte": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lte"
+        },
+        "eq": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eq"
+        }
+      },
+      "title": "Comparison",
+      "type": "object"
+    },
+    "Condition": {
+      "additionalProperties": false,
+      "description": "When a rule applies. Every listed condition must hold.",
+      "properties": {
+        "sideEffect": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SideEffect"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The tool's side-effect class is one of these",
+          "title": "Sideeffect"
+        },
+        "contextTainted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run's context does (true) or doesn't contain untrusted data",
+          "title": "Contexttainted"
+        },
+        "input": {
+          "description": "Comparisons against top-level tool-input fields",
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_]*$": {
+              "$ref": "#/$defs/Comparison"
+            }
+          },
+          "title": "Input",
+          "type": "object"
+        }
+      },
+      "title": "Condition",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "PolicyAction": {
+      "description": "Actions that policies govern in v0.1. WP 2.2 adds publish, subscribe, dispatch and more.",
+      "enum": [
+        "tool.invoke",
+        "memory.read",
+        "memory.write"
+      ],
+      "title": "PolicyAction",
+      "type": "string"
+    },
+    "PolicyRule": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PolicyAction"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "tool.invoke only: a tool name or pattern; omit for every tool",
+          "title": "Resource"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "working",
+                  "session",
+                  "user",
+                  "agent",
+                  "app",
+                  "tenant",
+                  "global"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "memory.read / memory.write only",
+          "title": "Scopes"
+        },
+        "when": {
+          "$ref": "#/$defs/Condition"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "PolicyRule",
+      "type": "object"
+    },
+    "PolicySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/PolicySubject"
+        },
+        "allow": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PolicyRule"
+          },
+          "title": "Allow",
+          "type": "array"
+        },
+        "deny": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PolicyRule"
+          },
+          "title": "Deny",
+          "type": "array"
+        },
+        "requireApproval": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ApprovalRule"
+          },
+          "title": "Requireapproval",
+          "type": "array"
+        }
+      },
+      "required": [
+        "subject"
+      ],
+      "title": "PolicySpec",
+      "type": "object"
+    },
+    "PolicySubject": {
+      "additionalProperties": false,
+      "description": "Whom the policy is about: exactly one agent, app, role or user.",
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        },
+        "app": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "App"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._~-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User"
+        }
+      },
+      "title": "PolicySubject",
+      "type": "object"
+    },
+    "SideEffect": {
+      "description": "Tool side-effect classes (FR-TOOL-02); policies and approvals key off them.",
+      "enum": [
+        "read",
+        "write",
+        "destructive",
+        "external_comm",
+        "financial",
+        "code_exec"
+      ],
+      "title": "SideEffect",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Requirements §7.9. Compiled to Cedar by :mod:`aios.security.cedar` (ADR-007).",
+  "properties": {
+    "apiVersion": {
+      "const": "aios/v1alpha1",
+      "default": "aios/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Policy",
+      "default": "Policy",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/PolicySpec"
+    }
+  },
+  "required": [
+    "metadata",
+    "spec"
+  ],
+  "title": "AIOS Policy manifest (aios/v1alpha1)",
+  "type": "object"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/task.claimed/1",
+  "additionalProperties": false,
+  "properties": {
+    "capability": {
+      "maxLength": 255,
+      "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){0,15}$",
+      "title": "Capability",
+      "type": "string"
+    },
+    "agent": {
+      "minLength": 1,
+      "title": "Agent",
+      "type": "string"
+    },
+    "instance": {
+      "minLength": 1,
+      "title": "Instance",
+      "type": "string"
+    }
+  },
+  "required": [
+    "capability",
+    "agent",
+    "instance"
+  ],
+  "title": "task.claimed v1 payload",
+  "type": "object"
+}

@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/manifests/app/v1alpha1",
+  "$defs": {
+    "AppBudgets": {
+      "additionalProperties": false,
+      "properties": {
+        "perRunUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perrunusd"
+        },
+        "monthlyUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Monthlyusd"
+        }
+      },
+      "title": "AppBudgets",
+      "type": "object"
+    },
+    "AppConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema"
+        },
+        "secrets": {
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Secrets",
+          "type": "array"
+        }
+      },
+      "title": "AppConfig",
+      "type": "object"
+    },
+    "AppMemory": {
+      "additionalProperties": false,
+      "properties": {
+        "scopes": {
+          "default": [],
+          "items": {
+            "enum": [
+              "working",
+              "session",
+              "user",
+              "agent",
+              "app",
+              "tenant",
+              "global"
+            ],
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "knowledge": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/KnowledgeSource"
+          },
+          "title": "Knowledge",
+          "type": "array"
+        }
+      },
+      "title": "AppMemory",
+      "type": "object"
+    },
+    "AppSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "entrypoints": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "chat": "#/$defs/ChatEntrypoint",
+                "event": "#/$defs/EventEntrypoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ChatEntrypoint"
+              },
+              {
+                "$ref": "#/$defs/EventEntrypoint"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Entrypoints",
+          "type": "array"
+        },
+        "agents": {
+          "items": {
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+          },
+          "title": "Agents",
+          "type": "array"
+        },
+        "workflows": {
+          "items": {
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+          },
+          "title": "Workflows",
+          "type": "array"
+        },
+        "tools": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ToolRef"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "memory": {
+          "$ref": "#/$defs/AppMemory"
+        },
+        "permissions": {
+          "$ref": "#/$defs/Permissions"
+        },
+        "policies": {
+          "items": {
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+          },
+          "title": "Policies",
+          "type": "array"
+        },
+        "modelPolicy": {
+          "default": "default",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Modelpolicy",
+          "type": "string"
+        },
+        "config": {
+          "$ref": "#/$defs/AppConfig"
+        },
+        "budgets": {
+          "$ref": "#/$defs/AppBudgets"
+        }
+      },
+      "required": [
+        "entrypoints"
+      ],
+      "title": "AppSpec",
+      "type": "object"
+    },
+    "ChatEntrypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "chat",
+          "title": "Type",
+          "type": "string"
+        },
+        "workflow": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "workflow"
+      ],
+      "title": "ChatEntrypoint",
+      "type": "object"
+    },
+    "DataClass": {
+      "description": "Data classification labels, least to most sensitive (FR-SEC-11).",
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "EventEntrypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "event",
+          "title": "Type",
+          "type": "string"
+        },
+        "on": {
+          "maxLength": 255,
+          "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+          "title": "On",
+          "type": "string"
+        },
+        "workflow": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "on",
+        "workflow"
+      ],
+      "title": "EventEntrypoint",
+      "type": "object"
+    },
+    "KnowledgeSource": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "scope": {
+          "default": "app",
+          "enum": [
+            "working",
+            "session",
+            "user",
+            "agent",
+            "app",
+            "tenant",
+            "global"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "KnowledgeSource",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "Permissions": {
+      "additionalProperties": false,
+      "description": "What the App asks a tenant admin to consent to at install time (FR-APP-03).",
+      "properties": {
+        "tools": {
+          "items": {
+            "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "dataClasses": {
+          "items": {
+            "$ref": "#/$defs/DataClass"
+          },
+          "title": "Dataclasses",
+          "type": "array"
+        }
+      },
+      "title": "Permissions",
+      "type": "object"
+    },
+    "ToolRef": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A tool provider, e.g. an MCP server",
+          "title": "Provider"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A single tool",
+          "title": "Name"
+        }
+      },
+      "title": "ToolRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "aios/v1alpha1",
+      "default": "aios/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "App",
+      "default": "App",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/AppSpec"
+    }
+  },
+  "required": [
+    "metadata",
+    "spec"
+  ],
+  "title": "AIOS App manifest (aios/v1alpha1)",
+  "type": "object"
+}

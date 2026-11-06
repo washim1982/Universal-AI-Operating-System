@@ -47,5 +47,47 @@ services:
     ports:
       - "127.0.0.1:${AIOS_JAEGER_UI_PORT:-16686}:16686"   # UI: http://localhost:16686
 
+  # Sign-in and secrets for WP 2.2. They are optional, so start them with --profile security.
+  keycloak:
+    profiles: [security]
+    image: quay.io/keycloak/keycloak:26.0.8
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${AIOS_KEYCLOAK_PASSWORD:-XXXXXX}
+    ports:
+      - "127.0.0.1:${AIOS_KEYCLOAK_PORT:-8180}:8080"   # issuer: http://127.0.0.1:8180/realms/aios
+    volumes:
+      - ./keycloak/aios-realm.json:/opt/keycloak/data/import/aios-realm.json:ro
+
+  console:
+    profiles: [console]
+    build: ../../console
+    environment:
+      AIOS_SERVER: ${AIOS_CONSOLE_API:-http://host.docker.internal:8080}
+      CONSOLE_URL: http://127.0.0.1:${AIOS_CONSOLE_PORT:-3000}
+      CONSOLE_SESSION_SECRET: ${CONSOLE_SESSION_SECRET:-}   # the console won't start without it
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+    ports:
+      - "127.0.0.1:${AIOS_CONSOLE_PORT:-3000}:3000"
+
+  registry:
+    profiles: [registry]
+    image: registry:2.8.3   # where `aios app push` keeps Apps. No sign-in: for one machine only
+    ports:
+      - "127.0.0.1:${AIOS_REGISTRY_PORT:-5000}:5000"
+    volumes:
+      - registry:/var/lib/registry
+
+  openbao:
+    profiles: [security]
+    image: openbao/openbao:2.3.2   # the open-source fork of Vault, with the same API
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: ${AIOS_VAULT_TOKEN:-XXXXXX}
+    ports:
+      - "127.0.0.1:${AIOS_VAULT_PORT:-8200}:8200"   # VAULT_ADDR=http://127.0.0.1:8200
+
 volumes:
   pgdata:
+  registry:

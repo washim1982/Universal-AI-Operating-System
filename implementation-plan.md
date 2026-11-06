@@ -232,11 +232,19 @@ Each work package (WP) lists the requirement ids it **covers**. Parentheses show
 | 7 | `fabric` and `workflow` at 90% line coverage; the 37-case suite passes on both adapters. |
 
 Open within the Phase 1 work packages (tracked in `docs/traceability.md`): token streaming to
-clients (FR-EVT-17, ADR-010); tool calling, embeddings and streaming in the Model Kernel
-(FR-MOD-01); agent health checks, hot reload and lifecycle operations (FR-AGT-03, 12, 13);
-signals, pause/resume and snapshots in the engine (FR-WF-08, 11); the AsyncAPI document
-(FR-CP-02); and a live recording of the AI Researcher cassette (the committed one is
-synthetic, recorded through the real runtime with a stand-in provider).
+clients (FR-EVT-17, ADR-010); tool calling and streaming in the Model Kernel (FR-MOD-01); agent
+health checks, hot reload and lifecycle operations (FR-AGT-03, 12, 13); snapshots in the engine;
+the AsyncAPI document (FR-CP-02); parallel fan-out within a run (`maxParallel` works, but
+per-run ordering in ADR-005 delivers the items of one run one at a time, FR-WF-03); and a live
+recording of the AI Researcher cassette (the committed one is synthetic, recorded through the
+real runtime with a stand-in provider).
+
+Done since (31 Oct 2026), because Phase 2 needs them: embeddings (FR-MOD-01), which Memory OS
+uses; signals, queries, pause and resume (FR-WF-08, 11), which Human OS uses; and service
+credentials in the tool pipeline (FR-TOOL-05, 06), which the refund tools use. Two limits carried
+into Phase 2. An App had no route for binding its own native tools, which WP 2.7 met with
+`AIOS_TOOL_PROVIDERS`; a manifest route is still to come. And MCP connections take no credentials
+yet, which a real Zendesk server will need.
 
 ### Phase 2 — Memory, security, human-in-the-loop (8 weeks) → M2 "Safe by Default" (MVP)
 
@@ -250,6 +258,8 @@ synthetic, recorded through the real runtime with a stand-in provider).
 - Policy checks on every read and write; per-scope write permissions; untrusted tagging of retrieved content.
 - Memory conformance suite, reused by the Qdrant adapter in Phase 4.
 
+*Progress (1 Nov 2026):* built and verified on pgvector with stand-in embeddings. Still open: choosing the default embedding model, which ADR-009 ties to an eval that needs real models. Retrieved content taints the task that read it; carrying that taint across a run's later tasks is WP 2.3.
+
 **WP 2.2 — Security Kernel v1.** *Owner: tech lead with security eng.*
 **Covers:** FR-SEC-01, 02 (OIDC, API keys, agent identities), 03, 04, 05, 06, 07 (local store and Vault), 08 (hash chain and verifier), 11 (labels), 12 (TLS and encryption at rest), 13
 - Tenancy model; OIDC login (Keycloak locally); API keys; agent workload identities.
@@ -260,6 +270,8 @@ synthetic, recorded through the real runtime with a stand-in provider).
 - Hash-chained audit log with an `aios audit verify` command.
 - Data classification labels; kill switch for an agent, App or tenant.
 
+*Progress (1 Nov 2026):* built and verified, except that the Organization and Environment levels of the tenancy model and the encryption-at-rest setup remain. ADR-011 awaits the owner's review. [docs/security-review.md](docs/security-review.md) lists every enforcement point and the known gaps; the independent review that M2 exit 7 needs is still to come.
+
 **WP 2.3 — AI threat controls.** *Owner: security eng with AI eng.*
 **Covers:** FR-SEC-09, 10; FR-MOD-06
 - Taint tracking: tool outputs, retrieved documents and user input are marked untrusted, and the taint follows into the run context.
@@ -269,6 +281,8 @@ synthetic, recorded through the real runtime with a stand-in provider).
 - **Red-team corpus** of direct and indirect injection cases, run in CI.
 - Threat-model document, kept current from here on.
 
+*Progress (1 Nov 2026):* built and verified: [docs/threat-model.md](docs/threat-model.md) maps each threat to its control and its cases. ADR-017 awaits the owner's review, and it narrows one requirement: a person's own request doesn't taint its run. Every corpus case assumes a fooled model, so none of this says how often a real model is fooled.
+
 **WP 2.4 — Human OS v1.** *Owner: full-stack.*
 **Covers:** FR-HUM-01, 02, 03, 04 (users, roles, separation of duties), 05 (timeouts, deny by default), 07 (console inbox and webhook), 10
 - Approval node and policy-triggered approvals; `approval.*` events; durable pause and resume.
@@ -276,18 +290,27 @@ synthetic, recorded through the real runtime with a stand-in provider).
 - Approval request content: summary, payload, risk, triggering policy, rationale, trace link.
 - REST and webhook channel.
 
+*Progress (1 Nov 2026):* built and verified, on memory and PostgreSQL, for tool calls and workflow steps. A task that needs a person stops and runs again once they answer (ADR-016, which awaits the owner's review). `requireApproval` on anything but a tool is a denial, so FR-HUM-01 stays open, and the console inbox is WP 2.6. Everything marked P1 in FR-HUM-04 to 07 is WP 3.5.
+
 **WP 2.5 — Model Kernel v1.1.** *Owner: AI eng.*
 **Covers:** FR-MOD-02 (Google Gemini), 08, 09 (provider prompt caching)
 - Gemini adapter.
 - Hard and soft budgets per run, App, tenant and user, with downgrade-on-soft-limit.
 - Provider prompt caching enabled where supported, with cache hits tracked in metrics.
 
+*Progress (1 Nov 2026):* built and verified on memory and PostgreSQL: limits are checked before every call against a ledger charged with the event (ADR-018, which awaits the owner's review). Caching and Gemini were tried through the real SDKs against stand-in servers only, because no live key was available, so neither a real cache hit nor a real Gemini call has been seen. `AIOS_MODEL_REGISTRY` was added, because a deployment had no other way to fill in a placeholder model or price a private one.
+
 **WP 2.6 — Minimal console.** *Owner: full-stack.*
 **Covers:** FR-UI-04 (minimal)
 - Next.js skeleton with OIDC login, a run list and an approvals inbox (approve / deny). This is the start of the Phase 3 console.
+- Until then, `aios dev` serves the AI Researcher's one-page demo (`apps/ai-researcher/demo.html`). It has no sign-in and is not part of the console.
+
+*Progress (1 Nov 2026):* built in `console/` on Next.js 16 and verified in a real browser against Keycloak, the API and a worker on PostgreSQL: sign-in with PKCE, the inbox, approve, deny, a stale answer, hostile text, sign-out and a phone layout. It calls the API from its own server with each person's credential, so it has no permissions of its own. The API gained `GET /v1/apps/{app}/runs` and `GET /v1/me`. Modify and the rest of the console are WP 3.2.
 
 **WP 2.7 — Reference app: AI Support Desk.** *Owner: AI eng.*
 - Triage, knowledge-base and refund agents; refunds above a configurable threshold require approval; user memory of preferences; knowledge base ingested into App memory.
+
+*Progress (1 Nov 2026):* built and verified: 21 acceptance tests on memory and PostgreSQL, and every exit criterion below with an API and a worker as separate processes. The model in all of that is a stand-in that believes whatever it reads, which is the case that matters for safety, but it says nothing about how well a real model sorts tickets. Stripe and Zendesk are stand-ins that ship with the App.
 
 **Exit criteria (M2 "Safe by Default" — MVP):**
 1. **Isolation suite** (automated, in CI): tenant B can't read tenant A's events, runs, memory, traces or audit entries through the API, SDK, search or replay.
@@ -297,6 +320,8 @@ synthetic, recorded through the real runtime with a stand-in provider).
 5. `forget(subject=user)` removes that user's items and embeddings, and searches return nothing for them.
 6. `restricted` data is routed only to the private model deployment.
 7. A security review of every enforcement point is complete.
+
+*Standing (1 Nov 2026):* 1 to 6 are met, on a stand-in model. 7 is not: [docs/security-review.md](docs/security-review.md) is the team's own review, and the independent one is still to be done. So M2 isn't closed. ADR-011, ADR-016, ADR-017 and ADR-018 also await the owner's review.
 
 ### Phase 3 — App model, console and developer experience (6 weeks) → M3 "Developer Preview"
 
@@ -309,16 +334,22 @@ synthetic, recorded through the real runtime with a stand-in provider).
 - Config and secret binding; upgrade and rollback with version pinning for in-flight runs; uninstall with retain, export or delete.
 - Declarative reconciler behind `aios apply`.
 
+*Progress (2 Nov 2026):* built and verified on memory and PostgreSQL, and with an API and two workers as separate processes against a real `registry:2`: Apps packaged as reproducible bundles and pushed as OCI artifacts (ADR-015); an install that waits for a tenant admin, with refused tools, memory scopes, data classes and hosts blocked at runtime and refusals held across upgrades (ADR-019); configuration, upgrade, rollback, and uninstall with retain, export or delete; a reconciler in every process; schedule and signed webhook entry points; per-tenant and per-environment tool bindings. M3 exit 4 is met. Still open: the OpenAI-compatible endpoint, which WP 3.7 also lists and builds; agent code pinned per version, which needs agents in their own processes (ADR-014); and declarative `Tool`, `ToolProvider`, `ModelProvider`, `MemoryStore` and `Tenant` resources (FR-CP-01).
+
 **WP 3.2 — Console.** *Owner: full-stack.*
 **Covers:** FR-UI-01, 02, 03, 04 (complete), 05, 06, 07, 09; FR-OBS-03 (console view), 06
 - Apps (catalog, installs, consent), agents (status, lifecycle controls), runs (search, live view).
 - **Trace Explorer** built with React Flow: the run DAG with per-node prompts, outputs, tokens, cost, latency, policy decisions and approvals.
 - Cost explorer and budgets; policy viewer and simulator; memory browser; event stream and dead-letter views.
 
+*Progress (2 Nov 2026):* built and verified in a real browser against an API and a worker on PostgreSQL, for five roles: the Trace Explorer (React Flow), run search with a live view and run controls, Apps with consent and configuration, agents with the kill switch, costs and budgets, a policy viewer and simulator, a memory browser with audited corrections, and the event stream and dead letters. Still open: replay and fork (WP 3.3) and approving with changes (WP 3.5). The check found a deadlock when processes set up the database at the same moment, outside this work package; it is recorded in the security review.
+
 **WP 3.3 — Replay and fork.** *Owner: tech lead.*
 **Covers:** FR-OBS-04; FR-WF-11 (retry from step, fork from step)
 - Exact replay from recorded events (no live model or tool calls).
 - Fork from step N with a changed input, prompt, model or agent version; side-effecting tools stubbed by default; side-by-side comparison.
+
+*Progress (3 Nov 2026):* built and verified on memory and PostgreSQL, and with an API and a worker as separate processes, through the CLI and in a real browser (ADR-021). That check found that PostgreSQL's `jsonb` reorders the keys of a tool's output, which made a replay diverge; agents now get tool outputs with sorted keys, live and replayed. A replay is a new run whose model and tool calls are answered from the source's record by call site, at no cost; where the record can't answer, it fails with `replay.diverged` and names the call. A fork keeps the steps before the one it starts from and re-runs the rest with a changed run input, step input or model; tools that aren't `READ`, memory writes and emits are held back, policy still decides each of them, and taint is kept. People and signals aren't asked again in a replay or fork. A retry starts again from the failed step for real, and only an operator can start one. `aios compare` and the console show two runs step by step. Still open: forking with an *older* agent version, because agent code isn't pinned per version (ADR-014); a fork after an upgrade runs the new one. Memory reads in a replay or fork are live, so a changed memory shows as a divergence rather than being replayed.
 
 **WP 3.4 — Evaluation framework.** *Owner: AI eng.*
 **Covers:** FR-OBS-07; FR-MEM-12
@@ -503,11 +534,12 @@ Keep the phase order and the exit criteria, and cut scope:
 | ADR-008 | Model adapter layer: direct provider SDKs, or LiteLLM underneath | Phase 0 |
 | ADR-009 | Default memory backend (pgvector) and default embedding model | Phase 0 |
 | ADR-010 | Token streaming outside the fabric (SSE / WebSocket) | Phase 0 |
-| ADR-011 | Identity: OIDC provider and agent identity format (SPIFFE-compatible) | End of Phase 1 |
+| ADR-011 | Identity: OIDC provider and agent identity format (SPIFFE-compatible) | End of Phase 1 (proposed 1 Nov 2026) |
 | ADR-012 | License and open-core boundary | Phase 0 |
 | ADR-013 | NATS topology and system of record (PostgreSQL outbox → JetStream relay) | During Phase 3 |
 | ADR-014 | Agent isolation levels and sandbox technology | During Phase 3 |
-| ADR-015 | App packaging format (OCI artifact) and registry | During Phase 2 |
+| ADR-015 | App packaging format (OCI artifact) and registry | During Phase 2 (proposed 2 Nov 2026) |
+| ADR-019 | Installation, consent and the reconciler | Phase 3 (proposed 2 Nov 2026) |
 
 ## 12. Sprint 1 backlog (Phase 0)
 

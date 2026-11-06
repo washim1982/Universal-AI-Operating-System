@@ -68,13 +68,14 @@ Details in [spikes/README.md](../../spikes/README.md#adr-007-cedar-from-python-2
 
 ## Consequences
 
-- `PolicyDecisionPoint.decide(PolicyRequest) -> PolicyDecision` lives in `aios.core.policy`
-  now. Phase 1 calls it at every enforcement point with `AllowAll`; WP 2.2 swaps in
-  `CedarDecisionPoint` without touching call sites.
-- Policy actions are limited to `tool.invoke`, `memory.read` and `memory.write` in v0.1; WP 2.2
-  adds publish, subscribe, dispatch, model routing, approvals and admin.
-- Cedar is a runtime dependency of the Security Kernel (the `policy` extra until WP 2.2 makes it
-  a default dependency).
+- `PolicyDecisionPoint.decide(PolicyRequest) -> PolicyDecision` lives in `aios.core.policy`.
+- Since WP 2.2 the runtime decides through `aios.security.enforcement.Enforcer`, which checks the
+  kill switch first, then the App's compiled policy set. Tools, task dispatch, model routing and
+  every control-plane route use it; memory joined in WP 2.1 and approval decisions in WP 2.4.
+  [docs/security-review.md](../security-review.md) lists each enforcement point.
+- An agent's manifest `tools.allow` both grants those tools and caps the agent at them, as
+  `forbid … unless` rules, so a broad rule for a whole App can't widen one agent.
+- Cedar is a default dependency.
 
 ## Implementation
 

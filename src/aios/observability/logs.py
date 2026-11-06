@@ -11,13 +11,14 @@ from typing import Any
 
 _SECRETS = re.compile(
     r"(sk-ant-[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{16,}|(?i:bearer)\s+[A-Za-z0-9._~+/=-]{12,}"
+    r"|aios_[0-9A-Z]{26}_[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|(?i:api[_-]?key|token|password|secret)[\"']?\s*[:=]\s*[\"']?[^\s\"',}]{6,})"
 )
 _FIELDS = ("run_id", "agent", "step", "trace_id", "tenant", "app")
 
 
 def redact(text: str) -> str:
-    """Mask API keys, bearer tokens and ``key=value`` secrets."""
+    """Mask API keys, bearer tokens, JWTs and ``key=value`` secrets."""
     return _SECRETS.sub("[REDACTED]", text)
 
 

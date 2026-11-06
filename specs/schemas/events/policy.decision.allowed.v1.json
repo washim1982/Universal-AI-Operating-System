@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/policy.decision.allowed/1",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "The governed action, e.g. tool.invoke.",
+      "title": "Action",
+      "type": "string"
+    },
+    "resource": {
+      "description": "What it applies to, e.g. stripe.refund.create.",
+      "title": "Resource",
+      "type": "string"
+    },
+    "policies": {
+      "description": "The rules that decided.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Policies",
+      "type": "array"
+    },
+    "approvers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Approvers",
+      "type": "array"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    },
+    "approval": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The approval this decision relied on.",
+      "title": "Approval"
+    }
+  },
+  "required": [
+    "action",
+    "resource"
+  ],
+  "title": "policy.decision.allowed v1 payload",
+  "type": "object"
+}

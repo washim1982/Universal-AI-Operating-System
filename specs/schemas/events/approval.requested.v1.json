@@ -1,7 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aios://schemas/approval.requested/1",
+  "$defs": {
+    "JsonValue": {}
+  },
   "additionalProperties": false,
+  "description": "What an approver sees (FR-HUM-03).",
   "properties": {
     "approval": {
       "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
@@ -21,10 +25,14 @@
       "title": "Reason",
       "type": "string"
     },
-    "expires_at": {
+    "summary": {
+      "description": "What would happen, in one line.",
+      "title": "Summary",
+      "type": "string"
+    },
+    "action": {
       "anyOf": [
         {
-          "format": "date-time",
           "type": "string"
         },
         {
@@ -32,13 +40,105 @@
         }
       ],
       "default": null,
-      "title": "Expires At"
+      "description": "The tool, unless this is a workflow step.",
+      "title": "Action"
+    },
+    "payload": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "Exactly what is being approved."
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Risk",
+      "type": "string"
+    },
+    "policies": {
+      "description": "The rules that asked.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Policies",
+      "type": "array"
+    },
+    "rationale": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The agent's reason, in its own words. A claim, not evidence.",
+      "title": "Rationale"
+    },
+    "tainted": {
+      "default": false,
+      "description": "The agent had read untrusted content.",
+      "title": "Tainted",
+      "type": "boolean"
+    },
+    "taint": {
+      "description": "Where that content came from.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Taint",
+      "type": "array"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Step"
+    },
+    "item": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "on_timeout": {
+      "default": "deny",
+      "enum": [
+        "deny",
+        "approve"
+      ],
+      "title": "On Timeout",
+      "type": "string"
     }
   },
   "required": [
     "approval",
     "approvers",
-    "reason"
+    "reason",
+    "summary",
+    "risk",
+    "expires_at"
   ],
   "title": "approval.requested v1 payload",
   "type": "object"

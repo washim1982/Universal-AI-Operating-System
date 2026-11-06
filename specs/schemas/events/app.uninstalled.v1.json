@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/app.uninstalled/1",
+  "additionalProperties": false,
+  "properties": {
+    "app": {
+      "title": "App",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    },
+    "data": {
+      "enum": [
+        "retain",
+        "delete"
+      ],
+      "title": "Data",
+      "type": "string"
+    },
+    "by": {
+      "title": "By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "app",
+    "data",
+    "by"
+  ],
+  "title": "app.uninstalled v1 payload",
+  "type": "object"
+}

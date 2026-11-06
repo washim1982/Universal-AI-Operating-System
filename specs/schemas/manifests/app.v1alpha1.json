@@ -107,7 +107,9 @@
             "discriminator": {
               "mapping": {
                 "chat": "#/$defs/ChatEntrypoint",
-                "event": "#/$defs/EventEntrypoint"
+                "event": "#/$defs/EventEntrypoint",
+                "schedule": "#/$defs/ScheduleEntrypoint",
+                "webhook": "#/$defs/WebhookEntrypoint"
               },
               "propertyName": "type"
             },
@@ -117,6 +119,12 @@
               },
               {
                 "$ref": "#/$defs/EventEntrypoint"
+              },
+              {
+                "$ref": "#/$defs/ScheduleEntrypoint"
+              },
+              {
+                "$ref": "#/$defs/WebhookEntrypoint"
               }
             ]
           },
@@ -153,6 +161,9 @@
         },
         "permissions": {
           "$ref": "#/$defs/Permissions"
+        },
+        "egress": {
+          "$ref": "#/$defs/Egress"
         },
         "policies": {
           "items": {
@@ -193,6 +204,12 @@
           "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
           "title": "Workflow",
           "type": "string"
+        },
+        "untrustedInput": {
+          "default": false,
+          "description": "Callers pass on someone else's words, e.g. a public chat widget",
+          "title": "Untrustedinput",
+          "type": "boolean"
         }
       },
       "required": [
@@ -213,6 +230,43 @@
       "title": "DataClass",
       "type": "string"
     },
+    "Egress": {
+      "additionalProperties": false,
+      "description": "Where this App's tools may send data (FR-SEC-10). Without ``allow``, no App list applies.",
+      "properties": {
+        "allow": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allow"
+        },
+        "tools": {
+          "patternProperties": {
+            "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){2}$": {
+              "items": {
+                "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "title": "Tools",
+          "type": "object"
+        }
+      },
+      "title": "Egress",
+      "type": "object"
+    },
     "EventEntrypoint": {
       "additionalProperties": false,
       "properties": {
@@ -231,6 +285,12 @@
           "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
           "title": "Workflow",
           "type": "string"
+        },
+        "untrustedInput": {
+          "default": true,
+          "description": "Events usually carry what someone outside wrote, e.g. a ticket",
+          "title": "Untrustedinput",
+          "type": "boolean"
         }
       },
       "required": [
@@ -321,6 +381,38 @@
       "title": "Permissions",
       "type": "object"
     },
+    "ScheduleEntrypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "schedule",
+          "title": "Type",
+          "type": "string"
+        },
+        "cron": {
+          "description": "minute hour day month weekday, in UTC",
+          "title": "Cron",
+          "type": "string"
+        },
+        "workflow": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Workflow",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "cron",
+        "workflow"
+      ],
+      "title": "ScheduleEntrypoint",
+      "type": "object"
+    },
     "ToolRef": {
       "additionalProperties": false,
       "properties": {
@@ -354,6 +446,47 @@
         }
       },
       "title": "ToolRef",
+      "type": "object"
+    },
+    "WebhookEntrypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "webhook",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "description": "The last part of /v1/hooks/<tenant>/<app>/<name>",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "workflow": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Workflow",
+          "type": "string"
+        },
+        "secret": {
+          "description": "Signs requests; declared in spec.config.secrets",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Secret",
+          "type": "string"
+        },
+        "untrustedInput": {
+          "default": true,
+          "description": "A webhook usually carries what someone outside wrote",
+          "title": "Untrustedinput",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "workflow",
+        "secret"
+      ],
+      "title": "WebhookEntrypoint",
       "type": "object"
     }
   },

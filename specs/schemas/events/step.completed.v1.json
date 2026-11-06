@@ -6,6 +6,28 @@
   },
   "additionalProperties": false,
   "properties": {
+    "copied_from": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Not run here: the result is the one this run recorded",
+      "title": "Copied From"
+    },
+    "taint": {
+      "description": "The untrusted content a copied result came from",
+      "items": {
+        "type": "string"
+      },
+      "title": "Taint",
+      "type": "array"
+    },
     "step": {
       "title": "Step",
       "type": "string"
@@ -30,6 +52,20 @@
       "default": false,
       "title": "Loops Exhausted",
       "type": "boolean"
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The signal a wait step took.",
+      "title": "Signal"
     }
   },
   "required": [

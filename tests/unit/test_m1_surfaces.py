@@ -1,8 +1,10 @@
 """Observability, API and CLI on a real recorded AI Researcher run (WP 1.6, 1.7)."""
 
 import asyncio
+import io
 import json
 import logging
+import re
 import sys
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
@@ -18,12 +20,16 @@ from aios.api import create_app
 from aios.cli import client as cli_client
 from aios.cli.main import main
 from aios.cli.scaffold import init
+from aios.cli.server import demo_page, running
 from aios.controlplane import load_app
+from aios.core.catalog import STANDARD_EVENTS
 from aios.core.envelope import Event
 from aios.core.manifests import AppManifest, load_manifests
+from aios.core.policy import SideEffect
 from aios.observability import EventMetrics, JsonFormatter, redact, render, spans_for
 from aios.observability import semconv as sc
 from aios.testing.runtime import LocalRuntime
+from aios.tools import NativeProvider, tool
 
 ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "apps" / "ai-researcher"
@@ -79,6 +85,15 @@ def test_traces_nest_runs_steps_agents_and_model_calls(run_events: list[Event]) 
     assert run.end_time is not None
     assert run.start_time is not None
     assert run.end_time >= run.start_time
+
+
+def test_embedding_calls_get_their_own_span_name(run_events: list[Event]) -> None:
+    call = next(e for e in run_events if e.type == "model.call.completed")
+    assert isinstance(call.data, dict)
+    embedded = call.model_copy(update={"data": {**call.data, "operation": "embed"}})
+    spans = spans_for([embedded], bus=None, exporter=InMemorySpanExporter())  # type: ignore[arg-type]
+    assert spans[0].name.startswith("embeddings ")
+    assert _attrs(spans[0])[sc.OPERATION] == sc.OP_EMBEDDINGS
 
 
 def test_the_timeline_renders_the_causal_tree(run_events: list[Event]) -> None:
@@ -187,6 +202,134 @@ async def test_the_api_rejects_unknown_apps_and_bad_manifests(
     assert (await client.post("/v1/dlq/01ABC/redrive")).status_code == 404
 
 
+WAITER = """
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: waiter, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: wait}]
+  workflows: [wait]
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: wait, version: 0.1.0}
+spec:
+  steps:
+    - {id: reply, type: wait, signal: reply}
+"""
+
+
+async def _view(client: httpx2.AsyncClient, run: str, status: str) -> dict[str, Any]:
+    async with asyncio.timeout(10):
+        while True:
+            view = (await client.get(f"/v1/apps/waiter/runs/{run}")).json()
+            if view["status"] == status:
+                return view
+            await asyncio.sleep(0.02)
+
+
+async def test_runs_can_be_paused_resumed_and_signalled_through_the_api(
+    api: tuple[httpx2.AsyncClient, LocalRuntime],
+) -> None:
+    client, runtime = api
+    await runtime.runtime.apply(load_manifests(WAITER))
+    base = "/v1/apps/waiter/runs"
+    run = (await client.post(base, json={"message": "hi"})).json()["run_id"]
+    view = await _view(client, run, "paused")
+    assert view["waiting"] == ["signal:reply"]
+    assert view["steps"] == {"reply": "running"}
+
+    conflict = await client.post(f"{base}/{run}/resume")
+    assert conflict.status_code == 409  # waiting for a signal, which resume doesn't answer
+    assert "not paused by request" in conflict.json()["detail"]
+    assert (await client.post(f"{base}/{run}/pause")).status_code == 202
+    async with asyncio.timeout(10):
+        while True:
+            if "request" in (await _view(client, run, "paused"))["waiting"]:
+                break
+            await asyncio.sleep(0.02)
+    assert (await client.post(f"{base}/{run}/signal", json={"name": "Bad Name"})).status_code == 422
+    sent = await client.post(f"{base}/{run}/signal", json={"name": "reply", "data": {"ok": True}})
+    assert sent.status_code == 202
+    assert (await client.post(f"{base}/{run}/resume")).status_code == 202
+
+    view = await _view(client, run, "completed")
+    assert view["output"] == {"ok": True}
+    assert view["waiting"] == []
+    assert (await client.post(f"{base}/{run}/pause")).status_code == 409
+    assert (await client.post(f"{base}/{run}/resume")).status_code == 409
+    assert (await client.post(f"{base}/{run}/signal", json={"name": "reply"})).status_code == 409
+    assert (await client.post(f"{base}/no-such-run/pause")).status_code == 404
+
+
+BILLING = """
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: billing, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: refund}]
+  workflows: [refund]
+  config: {secrets: [BILLING_KEY]}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: refund, version: 0.1.0}
+spec:
+  steps:
+    - {id: pay, type: tool, tool: billing.refund.create, input: {amount: 5}}
+"""
+
+
+async def test_a_workflow_tool_gets_its_credential_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "XXXXXX"
+    monkeypatch.setenv("AIOS_SECRET_BILLING_KEY", secret)
+    used: list[str] = []
+
+    @tool("billing.refund.create", side_effect=SideEffect.WRITE, credentials=["BILLING_KEY"])
+    async def refund(amount: int, credentials: Mapping[str, str]) -> dict[str, Any]:
+        used.append(credentials["BILLING_KEY"])
+        return {"refunded": amount, "sent": f"Bearer {credentials['BILLING_KEY']}"}
+
+    async with LocalRuntime(tenant="local") as runtime:
+        await runtime.runtime.apply(load_manifests(BILLING))
+        await runtime.runtime.register_tool_provider(NativeProvider("billing", [refund]))
+        result = await (await runtime.chat("billing", "refund")).wait(timeout=10)
+
+    assert used == [secret]
+    assert result.status == "completed"
+    assert result.output == {"refunded": 5, "sent": "Bearer [REDACTED]"}
+    assert secret not in json.dumps([e.model_dump(mode="json") for e in result.events])
+
+
+def _names_in(directory: Path) -> list[str]:
+    return [path.name for path in directory.iterdir()]
+
+
+async def test_a_local_runtime_leaves_nothing_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TMP", str(tmp_path))
+    async with LocalRuntime(tenant="local") as runtime:
+        (runtime.sandbox / "note.txt").write_text("from a tool", "utf-8")
+    assert _names_in(tmp_path) == []
+
+
+async def test_a_run_that_has_not_started_cannot_be_paused(
+    api: tuple[httpx2.AsyncClient, LocalRuntime],
+) -> None:
+    client, runtime = api
+    await runtime.kill_worker()  # the engine, which starts runs, is down
+    base = "/v1/apps/ai-researcher/runs"
+    run = (await client.post(base, json={"message": "hi"})).json()["run_id"]
+    assert (await client.get(f"{base}/{run}")).json()["status"] == "running"
+    refused = await client.post(f"{base}/{run}/pause")
+    assert refused.status_code == 409
+    assert "has not started" in refused.json()["detail"]
+    assert (await client.post(f"{base}/{run}/signal", json={"name": "reply"})).status_code == 202
+
+
 async def test_apply_installs_an_app_into_a_running_runtime(
     api: tuple[httpx2.AsyncClient, LocalRuntime], tmp_path: Path
 ) -> None:
@@ -196,15 +339,15 @@ async def test_apply_installs_an_app_into_a_running_runtime(
     sys.path.insert(0, str(root / "src"))
     try:
         applied = await client.post(
-            "/v1/apply", content=document, headers={"Content-Type": "application/yaml"}
+            "/v1/apply",
+            params={"consent": "all"},
+            content=document,
+            headers={"Content-Type": "application/yaml"},
         )
         assert applied.status_code == 201, applied.text
-        assert applied.json() == {
-            "app": "hello-app",
-            "version": "0.1.0",
-            "agents": ["assistant-agent"],
-            "workflows": ["answer"],
-        }
+        found = applied.json()
+        assert (found["app"], found["version"]) == ("hello-app", "0.1.0")
+        assert found["status"] == "active"
         assert len(runtime.runtime.workers) == 2
     finally:
         sys.path.remove(str(root / "src"))
@@ -233,6 +376,57 @@ def test_init_scaffolds_a_valid_app(tmp_path: Path) -> None:
 def test_server_roles_need_a_database_except_dev() -> None:
     with pytest.raises(SystemExit, match="database-url"):
         main(["worker"])
+
+
+def test_only_the_dev_server_offers_an_apps_demo_page(tmp_path: Path) -> None:
+    assert demo_page("dev", [tmp_path, APP]) == APP / "demo.html"
+    assert demo_page("dev", [tmp_path]) is None
+    assert demo_page("api", [APP]) is None
+
+
+async def test_the_api_serves_a_demo_page_and_says_where_answers_come_from() -> None:
+    async with LocalRuntime.from_app(APP, cassettes=CASSETTES) as runtime:
+        app = create_app(runtime.runtime, demo=APP / "demo.html")
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://aios") as client:
+            page = await client.get("/demo")
+            health = (await client.get("/healthz")).json()
+        without = httpx2.ASGITransport(app=create_app(runtime.runtime))
+        async with httpx2.AsyncClient(transport=without, base_url="http://aios") as client:
+            assert (await client.get("/demo")).status_code == 404
+    assert page.headers["content-type"].startswith("text/html")
+    assert "AI Researcher" in page.text
+    assert health["answers"] == "recorded"
+    assert "/demo" not in app.openapi()["paths"]  # not part of the versioned API
+
+
+def test_the_demo_page_handles_real_events_and_never_builds_html_from_text() -> None:
+    page = (APP / "demo.html").read_text(encoding="utf-8")
+    handled = re.findall(r'^  "([a-z.]+)"\(run, event\)', page, re.MULTILINE)
+    assert len(handled) >= 10
+    assert set(handled) - {"research.findings.recorded"} <= {s.type for s in STANDARD_EVENTS}
+    assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write", page)
+
+
+async def test_a_configured_private_model_serves_every_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIOS_PRIVATE_MODEL", "llama-4")
+    monkeypatch.setenv("AIOS_PRIVATE_MODEL_URL", "http://llama.local/v1")
+    options = {
+        "tenants": ["local"],
+        "database_url": None,
+        "cassettes": None,
+        "cassette_mode": "live",
+    }
+    async with running("api", apps=[APP], **options) as (runtime, _):  # type: ignore[arg-type]
+        policy = runtime.models.policy_for("local", "ai-researcher")
+        assert policy.spec.default.candidates == ["private/llama-4"]
+        assert policy.spec.rules == []
+    monkeypatch.delenv("AIOS_PRIVATE_MODEL_URL")
+    with pytest.raises(SystemExit, match="AIOS_PRIVATE_MODEL_URL"):
+        async with running("api", apps=[APP], **options):  # type: ignore[arg-type]
+            pass
 
 
 def test_cli_client_commands_print_runs(
@@ -268,6 +462,116 @@ def test_cli_client_commands_print_runs(
     assert "run.started" in capsys.readouterr().out
     assert main(["logs", "R1", "--app", "ai-researcher"]) == 0
     assert "task.requested" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("argv", "path", "body"),
+    [
+        (["pause", "R1", "--app", "a"], "/v1/apps/a/runs/R1/pause", None),
+        (["resume", "R1", "--app", "a"], "/v1/apps/a/runs/R1/resume", None),
+        (["cancel", "R1", "--app", "a"], "/v1/apps/a/runs/R1/cancel", None),
+        (["signal", "R1", "reply", "--app", "a"], "/v1/apps/a/runs/R1/signal", (None,)),
+        (
+            ["signal", "R1", "reply", "--app", "a", "--data", '{"ok": true}'],
+            "/v1/apps/a/runs/R1/signal",
+            ({"ok": True},),
+        ),
+        (
+            ["signal", "R1", "reply", "--app", "a", "--data", "plain words"],
+            "/v1/apps/a/runs/R1/signal",
+            ("plain words",),
+        ),
+    ],
+)
+def test_cli_controls_a_run(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    path: str,
+    body: tuple[Any] | None,
+) -> None:
+    requests: list[httpx2.Request] = []
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(202, json={"status": "accepted"})
+
+    original = httpx2.Client
+
+    def fake(*args: Any, **kwargs: Any) -> httpx2.Client:
+        return original(*args, transport=httpx2.MockTransport(handle), **kwargs)
+
+    monkeypatch.setattr(cli_client.httpx2, "Client", fake)
+    assert main(argv) == 0
+    assert "accepted" in capsys.readouterr().out
+    [sent] = requests
+    assert (sent.method, sent.url.path) == ("POST", path)
+    if body is not None:
+        assert json.loads(sent.content) == {"name": "reply", "data": body[0]}
+
+
+def test_cli_shows_a_runs_status(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/v1/apps/a/runs/R1"
+        return httpx2.Response(200, json={"status": "paused", "waiting": ["request"]})
+
+    original = httpx2.Client
+
+    def fake(*args: Any, **kwargs: Any) -> httpx2.Client:
+        return original(*args, transport=httpx2.MockTransport(handle), **kwargs)
+
+    monkeypatch.setattr(cli_client.httpx2, "Client", fake)
+    assert main(["status", "R1", "--app", "a"]) == 0
+    assert json.loads(capsys.readouterr().out)["waiting"] == ["request"]
+
+
+def test_cli_run_says_why_a_run_failed_on_any_console() -> None:
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "POST":
+            return httpx2.Response(202, json={"run_id": "R1"})
+        if request.url.path.endswith("/events"):
+            event = {"type": "run.failed", "time": "2026-10-30T12:00:00.000Z"}
+            return httpx2.Response(
+                200,
+                text=f"data: {json.dumps(event)}\n\n",
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx2.Response(
+            200,
+            json={
+                "status": "failed",
+                "output": {"title": "a → b"},  # real models write what cp1252 can't encode
+                "error": {"code": "model.failed", "message": "anthropic 401: invalid key"},
+            },
+        )
+
+    client = cli_client.Client("http://aios")
+    client.http = httpx2.Client(base_url="http://aios", transport=httpx2.MockTransport(handle))
+    raw = io.BytesIO()
+    console = io.TextIOWrapper(raw, encoding="cp1252")
+    assert cli_client.run_and_follow(client, "ai-researcher", "q", console) == 1
+    console.flush()
+    printed = raw.getvalue().decode("cp1252")
+    assert "error: anthropic 401: invalid key" in printed
+    assert "a \\u2192 b" in printed
+
+
+def test_cli_says_when_another_server_answered() -> None:
+    llama = httpx2.MockTransport(lambda _: httpx2.Response(401, json={"error": {"code": 401}}))
+    client = cli_client.Client("http://127.0.0.1:8080/")
+    client.http = httpx2.Client(base_url=client.server, transport=llama)
+    with pytest.raises(SystemExit, match=r"error 401: http://127\.0\.0\.1:8080 did not answer"):
+        client.apps()
+
+
+def test_cli_keeps_the_detail_of_an_aios_error() -> None:
+    aios = httpx2.MockTransport(lambda _: httpx2.Response(404, json={"detail": "no such App"}))
+    client = cli_client.Client("http://aios")
+    client.http = httpx2.Client(base_url=client.server, transport=aios)
+    with pytest.raises(SystemExit, match="error 404: no such App"):
+        client.apps()
 
 
 def test_app_configuration_is_validated_against_its_schema() -> None:

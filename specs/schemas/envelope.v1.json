@@ -166,6 +166,12 @@
       "default": "internal",
       "description": "Classification (FR-SEC-11)."
     },
+    "tainted": {
+      "default": false,
+      "description": "Untrusted content reached whoever acted (FR-SEC-09).",
+      "title": "Tainted",
+      "type": "boolean"
+    },
     "traceparent": {
       "anyOf": [
         {

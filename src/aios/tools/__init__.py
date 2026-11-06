@@ -1,7 +1,6 @@
 """Tool OS: registry, invocation pipeline, native, MCP and built-in providers (WP 1.5)."""
 
 from aios.tools.builtins import filesystem_provider, http_provider, search_provider
-from aios.tools.policy import StaticToolPolicy
 from aios.tools.providers import (
     MCPProvider,
     NativeProvider,
@@ -18,7 +17,6 @@ __all__ = [
     "MCPProvider",
     "NativeProvider",
     "NativeTool",
-    "StaticToolPolicy",
     "ToolProvider",
     "ToolRegistry",
     "ToolService",

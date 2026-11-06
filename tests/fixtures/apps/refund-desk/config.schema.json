@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "approvalTimeout": {
+      "type": "string",
+      "default": "1h",
+      "description": "How long a person has to answer; after that, the answer is no."
+    }
+  }
+}

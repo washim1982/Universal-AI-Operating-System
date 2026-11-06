@@ -20,6 +20,13 @@ spec:
       resource: "stripe.refund.create"
       when: { input: { amountUSD: { gt: "${config.refundApprovalThresholdUSD}" } } }
       approvers: ["role:${config.approverRole}"]
+    # Every App already needs a person for this (ADR-017). This says which person: the one who
+    # handles refunds, so that a small poisoned one reaches somebody who will know it for what it is.
     - action: tool.invoke
-      when: { sideEffect: [financial, external_comm], contextTainted: true }
+      when: { sideEffect: [financial], contextTainted: true }
       approvers: ["role:${config.approverRole}"]
+  # A reply is what this App is for, and it goes to the customer who asked, so it needs nobody even
+  # on tainted context. That accepts a risk: a poisoned article could shape a reply. It can't move
+  # money, and reply-agent has no other tool.
+  taint:
+    exempt: ["zendesk.ticket.comment"]

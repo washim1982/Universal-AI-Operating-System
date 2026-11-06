@@ -13,6 +13,12 @@
   ``max_deliveries`` the row moves to ``dead_letters`` and ``system.dlq.added`` is appended in
   the same transaction.
 * **Read your writes.** ``replay`` first waits until every committed event is sequenced.
+* **Row-level security (FR-SEC-06).** A read for one tenant runs as the ``aios_tenant`` role with
+  the tenant set for that transaction, so PostgreSQL itself hides other tenants' rows even if a
+  query forgets to filter. The sequencer and platform consumers keep the connecting role, which
+  owns the tables and sees every row. Delivery bookkeeping has no tenant view at all.
+* **Setup once.** The bus and each store set up their tables through ``set_up``, which skips a
+  setup already applied to the schema, so a process starting takes no lock that traffic holds up.
 
 Wake-ups are payload-free NOTIFYs with a polling fallback. Known limits for WP 4.x: the
 ``events`` table is not partitioned yet, and an ephemeral group left by a crashed process is
@@ -24,10 +30,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,6 +46,7 @@ from aios.core.errors import BusClosedError, NotFoundError, SubscriptionConflict
 from aios.core.ids import new_ulid
 from aios.core.topics import matches, validate_name, validate_pattern
 from aios.fabric.port import (
+    ANY,
     DEFAULT_MAX_HOPS,
     DeadLetter,
     Delivery,
@@ -57,8 +65,27 @@ DLQ_EVENT_TYPE = "system.dlq.added"
 POLL_SECONDS = 0.05
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
-_DDL = """
+SETUP_LOCK_TIMEOUT = "500ms"  # below deadlock_timeout: setup gives way to traffic, not the reverse
+SETUP_ATTEMPTS = 30
+
+# The schema, and a record of each setup applied to it: the text's digest, by component.
+_SETUP = """
 CREATE SCHEMA IF NOT EXISTS {s};
+DO $$ BEGIN
+    IF to_regclass('{s}.schema_setup') IS NULL THEN
+        CREATE TABLE {s}.schema_setup (
+            component  text NOT NULL,
+            digest     text NOT NULL,
+            applied_at timestamptz NOT NULL DEFAULT now(),
+            PRIMARY KEY (component, digest)
+        );
+        ALTER TABLE {s}.schema_setup ENABLE ROW LEVEL SECURITY;
+    END IF;
+END $$;
+"""
+_APPLIED = "SELECT EXISTS (SELECT FROM {s}.schema_setup WHERE component = $1 AND digest = $2)"
+
+_DDL = """
 CREATE TABLE IF NOT EXISTS {s}.events (
     tx       xid8        NOT NULL DEFAULT pg_current_xact_id(),
     seq      bigint      GENERATED ALWAYS AS IDENTITY,
@@ -120,10 +147,59 @@ BEGIN
     PERFORM pg_notify('{s}_events', '');
     RETURN NULL;
 END $$;
-DROP TRIGGER IF EXISTS events_wake ON {s}.events;
-CREATE TRIGGER events_wake AFTER INSERT ON {s}.events
+CREATE OR REPLACE TRIGGER events_wake AFTER INSERT ON {s}.events
     FOR EACH STATEMENT EXECUTE FUNCTION {s}.wake_sequencer();
 """
+
+TENANT_ROLE = "aios_tenant"
+_TENANT_ROLE_DDL = f"""
+SELECT pg_advisory_xact_lock(hashtext('{TENANT_ROLE}'));  -- roles belong to the whole cluster
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{TENANT_ROLE}') THEN
+        CREATE ROLE {TENANT_ROLE} NOLOGIN;
+    END IF;
+    IF NOT pg_has_role(current_user, '{TENANT_ROLE}', 'SET') THEN
+        GRANT {TENANT_ROLE} TO CURRENT_USER;
+    END IF;
+END $$;
+"""  # noqa: S608 - only constants are interpolated
+_BIND_TENANT = (
+    f"SELECT set_config('role', '{TENANT_ROLE}', true), set_config('aios.tenant', $1, true)"
+)
+
+
+def tenant_only(schema: str, table: str, column: str = "tenantid") -> str:
+    """DDL: ``table`` shows a tenant connection only its own rows (FR-SEC-06).
+
+    Only the first run alters the table, because that takes a lock that stops every query on it.
+    """
+    return f"""
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT FROM pg_policies
+            WHERE schemaname = '{schema}' AND tablename = '{table}'
+              AND policyname = 'tenant_isolation'
+        ) THEN
+            ALTER TABLE {schema}.{table} ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY tenant_isolation ON {schema}.{table} TO {TENANT_ROLE}
+                USING ({column} = current_setting('aios.tenant', true));
+        END IF;
+    END $$;
+    """
+
+
+def _private(schema: str, table: str) -> str:
+    """DDL: ``table`` is the platform's own. A tenant connection has no grant and no policy."""
+    return f"""
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT FROM pg_class WHERE oid = '{schema}.{table}'::regclass AND relrowsecurity
+        ) THEN
+            ALTER TABLE {schema}.{table} ENABLE ROW LEVEL SECURITY;
+        END IF;
+    END $$;
+    """
+
 
 _SEQUENCE = """
 WITH ready AS (
@@ -293,26 +369,101 @@ class PostgresEventBus(EventBus):
     def _sql(self, template: str) -> str:
         return template.replace("{s}", self.schema)
 
+    sql = _sql
+
     @property
     def pool(self) -> asyncpg.Pool:
         if self._pool is None:
             raise BusClosedError("call connect() first")
         return self._pool
 
+    @contextlib.asynccontextmanager
+    async def tenant_connection(self, tenant: str) -> AsyncGenerator[Any]:
+        """A transaction that PostgreSQL itself limits to ``tenant``'s rows (FR-SEC-06).
+
+        Use it to fetch, not to yield rows from: it holds a pooled connection until it ends.
+        """
+        if tenant == ANY:
+            raise ValueError("a tenant connection needs one tenant")
+        async with self.pool.acquire() as connection, connection.transaction():
+            await connection.execute(_BIND_TENANT, tenant)
+            yield connection
+
+    @contextlib.asynccontextmanager
+    async def _reading(self, scope: Scope) -> AsyncGenerator[Any]:
+        if scope.tenant != ANY:
+            async with self.tenant_connection(scope.tenant) as connection:
+                yield connection
+            return
+        async with self.pool.acquire() as connection:
+            yield connection
+
     # ------------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
-        """Create the schema if needed, open the pool and start listening and sequencing."""
+        """Set up the schema if needed, open the pool and start listening and sequencing."""
         self._pool = await asyncpg.create_pool(
             self.dsn, min_size=2, max_size=self.pool_size, init=_init_connection
         )
         async with self.pool.acquire() as connection:
-            await connection.execute(self._sql(_DDL))
+            await connection.execute(_TENANT_ROLE_DDL)
+        await self.set_up("fabric", self._sql(_DDL) + self._isolation())
         listener = await asyncpg.connect(self.dsn)
         await listener.add_listener(f"{self.schema}_events", self._on_events)
         await listener.add_listener(f"{self.schema}_deliveries", self._on_deliveries)
         self._listener = listener
         self._sequencer = asyncio.create_task(self._run_sequencer())
+
+    async def set_up(self, component: str, ddl: str) -> None:
+        """Run ``component``'s setup ``ddl`` once per schema, and again only when the text changes.
+
+        Setup statements lock tables even when they change nothing, and a process that starts
+        while others work would wait on their transactions while holding locks they need: a
+        deadlock. So a setup already applied isn't run at all. Otherwise it runs in one
+        transaction, under one lock for the whole schema so that no two setups interleave, and
+        gives way to traffic if a table stays busy, trying again shortly after.
+        """
+        digest = hashlib.sha256(ddl.encode()).hexdigest()
+        async with self.pool.acquire() as connection:
+            with contextlib.suppress(asyncpg.UndefinedTableError):  # nothing set up yet
+                if await connection.fetchval(self._sql(_APPLIED), component, digest):
+                    return
+        for attempt in range(1, SETUP_ATTEMPTS + 1):
+            try:
+                async with self.pool.acquire() as connection, connection.transaction():
+                    await connection.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext($1))", self.schema
+                    )
+                    await connection.execute(f"SET LOCAL lock_timeout = '{SETUP_LOCK_TIMEOUT}'")
+                    await connection.execute(self._sql(_SETUP))
+                    if await connection.fetchval(self._sql(_APPLIED), component, digest):
+                        return  # another process applied it while this one waited
+                    await connection.execute(ddl)
+                    await connection.execute(
+                        self._sql(
+                            "INSERT INTO {s}.schema_setup (component, digest) VALUES ($1, $2)"
+                        ),
+                        component,
+                        digest,
+                    )
+                return
+            except (asyncpg.DeadlockDetectedError, asyncpg.LockNotAvailableError):
+                if attempt == SETUP_ATTEMPTS:
+                    raise
+                logger.info("setting up %s waited too long for a table; trying again", component)
+                await asyncio.sleep(min(0.1 * attempt, 1.0))
+
+    def _isolation(self) -> str:
+        s = self.schema
+        return "\n".join(
+            (
+                tenant_only(s, "events"),
+                tenant_only(s, "dead_letters"),
+                *(_private(s, table) for table in ("sequencer", "groups", "deliveries")),
+                f"GRANT USAGE ON SCHEMA {s} TO {TENANT_ROLE};",
+                f"GRANT SELECT ON {s}.events, {s}.dead_letters TO {TENANT_ROLE};",
+            )
+        )
 
     async def __aenter__(self) -> PostgresEventBus:
         if self._pool is None:
@@ -737,7 +888,7 @@ class PostgresEventBus(EventBus):
         return scope.tenant in ("*", tenant) and scope.app in ("*", app)
 
     async def dead_letters(self, scope: Scope) -> list[DeadLetter]:
-        async with self.pool.acquire() as connection:
+        async with self._reading(scope) as connection:
             rows = await connection.fetch(
                 self._sql(
                     "SELECT d.*, e.body FROM {s}.dead_letters d "
@@ -826,7 +977,31 @@ class PostgresEventBus(EventBus):
             + " ORDER BY position LIMIT 1000"
         )
         while True:
-            async with self.pool.acquire() as connection:
+            async with self._reading(scope) as connection:
+                rows = await connection.fetch(query, *args)
+            for row in rows:
+                if matches(physical, row["subject"]):
+                    yield StoredEvent(row["position"], _event(row["body"]))
+            if len(rows) < 1000:
+                return
+            args[0] = rows[-1]["position"]
+
+    async def latest(self, scope: Scope, pattern: str = ">") -> AsyncIterator[StoredEvent]:
+        physical = physical_pattern(scope.tenant, scope.app, pattern)
+        await self._barrier()
+        conditions = ["position IS NOT NULL", "position < $1"]
+        args: list[Any] = [2**63 - 1]
+        for column, value in (("tenantid", scope.tenant), ("appid", scope.app)):
+            if value != "*":
+                args.append(value)
+                conditions.append(f"{column} = ${len(args)}")
+        query = self._sql(  # only column names and placeholders are interpolated
+            "SELECT position, subject, body FROM {s}.events WHERE "  # noqa: S608
+            + " AND ".join(conditions)
+            + " ORDER BY position DESC LIMIT 1000"
+        )
+        while True:
+            async with self._reading(scope) as connection:
                 rows = await connection.fetch(query, *args)
             for row in rows:
                 if matches(physical, row["subject"]):

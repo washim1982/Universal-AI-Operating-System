@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/memory.item.forgotten/1",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+        "type": "string"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "held": {
+      "default": 0,
+      "description": "Items kept because of a legal hold.",
+      "minimum": 0,
+      "title": "Held",
+      "type": "integer"
+    },
+    "subject_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 of the erased subject: proof for whoever already knows the subject.",
+      "title": "Subject Hash"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "memory.item.forgotten v1 payload",
+  "type": "object"
+}

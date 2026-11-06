@@ -10,16 +10,23 @@ defines a schema.
 |---|---|---|---|---|
 | `app.request.received` | fact | Access layer | [app.request.received.v1](schemas/events/app.request.received.v1.json) | A user or trigger asked an App for something. |
 | `app.response.ready` | fact | Access layer | *pending* | The App's response is ready to stream to the caller. |
-| `app.installed` | fact | Control plane | *pending* | An App was installed into a tenant. |
-| `app.upgraded` | fact | Control plane | *pending* | An installed App moved to a new version. |
-| `app.uninstalled` | fact | Control plane | *pending* | An App was removed from a tenant. |
+| `app.consent.requested` | command | Control plane | [app.consent.requested.v1](schemas/events/app.consent.requested.v1.json) | An App is waiting for a tenant admin to agree. |
+| `app.consent.refused` | fact | Control plane | [app.consent.refused.v1](schemas/events/app.consent.refused.v1.json) | A tenant admin said no to an App. |
+| `app.installed` | fact | Control plane | [app.installed.v1](schemas/events/app.installed.v1.json) | An App was installed into a tenant. |
+| `app.upgraded` | fact | Control plane | [app.upgraded.v1](schemas/events/app.upgraded.v1.json) | An installed App moved to a new version. |
+| `app.version.restored` | fact | Control plane | [app.version.restored.v1](schemas/events/app.version.restored.v1.json) | An App went back to an earlier version. |
+| `app.config.changed` | fact | Control plane | [app.config.changed.v1](schemas/events/app.config.changed.v1.json) | An App's configuration changed. |
+| `app.uninstalled` | fact | Control plane | [app.uninstalled.v1](schemas/events/app.uninstalled.v1.json) | An App was removed from a tenant. |
 | `run.started` | fact | Workflow Engine | [run.started.v1](schemas/events/run.started.v1.json) | A workflow run started. |
-| `run.paused` | fact | Workflow Engine | *pending* | A run is waiting (approval, timer, signal). |
-| `run.resumed` | fact | Workflow Engine | *pending* | A paused run continued. |
+| `run.paused` | fact | Workflow Engine | [run.paused.v1](schemas/events/run.paused.v1.json) | A run is waiting (request, approval, signal). |
+| `run.resumed` | fact | Workflow Engine | [run.resumed.v1](schemas/events/run.resumed.v1.json) | A paused run continued. |
 | `run.completed` | fact | Workflow Engine | [run.completed.v1](schemas/events/run.completed.v1.json) | A run finished successfully. |
 | `run.failed` | fact | Workflow Engine | [run.failed.v1](schemas/events/run.failed.v1.json) | A run failed. |
 | `run.cancel.requested` | command | Access layer, Control plane | [run.cancel.requested.v1](schemas/events/run.cancel.requested.v1.json) | Asks to cancel a run. |
 | `run.cancelled` | fact | Workflow Engine | [run.cancelled.v1](schemas/events/run.cancelled.v1.json) | A run was cancelled. |
+| `run.pause.requested` | command | Access layer, Control plane | [run.pause.requested.v1](schemas/events/run.pause.requested.v1.json) | Asks a run to start no new work until it is resumed. |
+| `run.resume.requested` | command | Access layer, Control plane | [run.resume.requested.v1](schemas/events/run.resume.requested.v1.json) | Asks a held run to continue. |
+| `run.signal.requested` | command | Access layer, Control plane | [run.signal.requested.v1](schemas/events/run.signal.requested.v1.json) | External input for a run (FR-WF-08); the run keeps it until a wait step takes it. |
 | `step.scheduled` | fact | Workflow Engine | *pending* | A step is ready to run. |
 | `step.started` | fact | Workflow Engine | [step.started.v1](schemas/events/step.started.v1.json) | A step started. |
 | `step.completed` | fact | Workflow Engine | [step.completed.v1](schemas/events/step.completed.v1.json) | A step finished; its output is recorded. |
@@ -29,6 +36,7 @@ defines a schema.
 | `task.claimed` | fact | Agent Kernel | [task.claimed.v1](schemas/events/task.claimed.v1.json) | An agent instance took the task. |
 | `task.completed` | fact | Agents (via the SDK) | [task.completed.v1](schemas/events/task.completed.v1.json) | The task's output. |
 | `task.failed` | fact | Agents (via the SDK) | [task.failed.v1](schemas/events/task.failed.v1.json) | The task failed. |
+| `task.suspended` | fact | Agent Kernel | [task.suspended.v1](schemas/events/task.suspended.v1.json) | The task stopped to wait for an approval; it runs again once that is decided. |
 | `agent.lifecycle.registered` | fact | Agent Kernel | [agent.lifecycle.registered.v1](schemas/events/agent.lifecycle.registered.v1.json) | Agent lifecycle transition (FR-AGT-03). |
 | `agent.lifecycle.starting` | fact | Agent Kernel | [agent.lifecycle.starting.v1](schemas/events/agent.lifecycle.starting.v1.json) | Agent lifecycle transition. |
 | `agent.lifecycle.ready` | fact | Agent Kernel | [agent.lifecycle.ready.v1](schemas/events/agent.lifecycle.ready.v1.json) | Agent lifecycle transition. |
@@ -37,25 +45,36 @@ defines a schema.
 | `agent.lifecycle.draining` | fact | Agent Kernel | [agent.lifecycle.draining.v1](schemas/events/agent.lifecycle.draining.v1.json) | Agent lifecycle transition. |
 | `agent.lifecycle.stopped` | fact | Agent Kernel | [agent.lifecycle.stopped.v1](schemas/events/agent.lifecycle.stopped.v1.json) | Agent lifecycle transition. |
 | `agent.lifecycle.failed` | fact | Agent Kernel | [agent.lifecycle.failed.v1](schemas/events/agent.lifecycle.failed.v1.json) | Agent lifecycle transition. |
+| `agent.emit.stubbed` | fact | Agent Kernel | [agent.emit.stubbed.v1](schemas/events/agent.emit.stubbed.v1.json) | A replay or fork held back a fact an agent emitted, so that nothing it triggers happens. |
 | `model.call.completed` | fact | Model Kernel | [model.call.completed.v1](schemas/events/model.call.completed.v1.json) | Summary of a model call: model, tokens, cost, and the recorded output. |
 | `model.call.failed` | fact | Model Kernel | [model.call.failed.v1](schemas/events/model.call.failed.v1.json) | A model call failed after fallbacks. |
 | `tool.call.requested` | command | Tool OS | [tool.call.requested.v1](schemas/events/tool.call.requested.v1.json) | A tool invocation, before the policy decision (an audit record of the request). |
 | `tool.call.completed` | fact | Tool OS | [tool.call.completed.v1](schemas/events/tool.call.completed.v1.json) | A tool returned. |
 | `tool.call.failed` | fact | Tool OS | [tool.call.failed.v1](schemas/events/tool.call.failed.v1.json) | A tool failed or was denied. |
-| `memory.item.written` | fact | Memory OS | *pending* | A memory item was stored. |
-| `memory.recalled` | fact | Memory OS | *pending* | A context pack was assembled for an agent. |
-| `memory.item.forgotten` | fact | Memory OS | *pending* | A memory item was erased (GDPR forget). |
-| `approval.requested` | command | Workflow Engine, Security Kernel | [approval.requested.v1](schemas/events/approval.requested.v1.json) | Asks Human OS for a decision; the run pauses until it arrives. |
+| `memory.item.written` | fact | Memory OS | [memory.item.written.v1](schemas/events/memory.item.written.v1.json) | A memory item was stored. |
+| `memory.item.updated` | fact | Memory OS | [memory.item.updated.v1](schemas/events/memory.item.updated.v1.json) | A memory item has a new version. |
+| `memory.recalled` | fact | Memory OS | [memory.recalled.v1](schemas/events/memory.recalled.v1.json) | Someone received memory items. |
+| `memory.item.forgotten` | fact | Memory OS | [memory.item.forgotten.v1](schemas/events/memory.item.forgotten.v1.json) | Memory items were erased. |
+| `memory.ingest.started` | fact | Memory OS | [memory.ingest.started.v1](schemas/events/memory.ingest.started.v1.json) | A document sync began. |
+| `memory.document.synced` | fact | Memory OS | [memory.document.synced.v1](schemas/events/memory.document.synced.v1.json) | A document sync finished. |
+| `approval.requested` | command | Workflow Engine, Security Kernel | [approval.requested.v1](schemas/events/approval.requested.v1.json) | Asks Human OS for a decision; the step waiting for it stops until it arrives. |
 | `approval.granted` | fact | Human OS | [approval.granted.v1](schemas/events/approval.granted.v1.json) | The approval was granted. |
 | `approval.denied` | fact | Human OS | [approval.denied.v1](schemas/events/approval.denied.v1.json) | The approval was denied. |
 | `approval.modified` | fact | Human OS | *pending* | The approver changed the proposed action. |
-| `approval.expired` | fact | Human OS | *pending* | No decision before the timeout. |
+| `approval.expired` | fact | Human OS | [approval.expired.v1](schemas/events/approval.expired.v1.json) | No decision before the timeout. |
 | `approval.escalated` | fact | Human OS | *pending* | The approval moved to the next approver tier. |
-| `approval.cancelled` | fact | Human OS | *pending* | The run no longer needs the approval. |
+| `approval.cancelled` | fact | Human OS | [approval.cancelled.v1](schemas/events/approval.cancelled.v1.json) | The run no longer needs the approval. |
 | `human.task.assigned` | fact | Human OS | *pending* | Work assigned to a person. |
 | `human.task.completed` | fact | Human OS | *pending* | A person completed assigned work. |
-| `policy.decision.denied` | fact | Security Kernel | *pending* | A governed action was denied. |
-| `budget.warning` | fact | Model Kernel, Workflow Engine | *pending* | A soft budget limit was reached. |
+| `policy.decision.allowed` | fact | Security Kernel | [policy.decision.allowed.v1](schemas/events/policy.decision.allowed.v1.json) | A governed action was allowed. |
+| `policy.decision.denied` | fact | Security Kernel | [policy.decision.denied.v1](schemas/events/policy.decision.denied.v1.json) | A governed action was denied. |
+| `policy.decision.escalated` | fact | Security Kernel | [policy.decision.escalated.v1](schemas/events/policy.decision.escalated.v1.json) | A governed action needs an approval first. |
+| `security.injection.suspected` | fact | Security Kernel | [security.injection.suspected.v1](schemas/events/security.injection.suspected.v1.json) | Content reaching an agent looks like an injection (FR-SEC-09). |
+| `security.key.created` | fact | Security Kernel | [security.key.created.v1](schemas/events/security.key.created.v1.json) | An API key was created. |
+| `security.key.revoked` | fact | Security Kernel | [security.key.revoked.v1](schemas/events/security.key.revoked.v1.json) | An API key was revoked. |
+| `security.suspended` | fact | Security Kernel | [security.suspended.v1](schemas/events/security.suspended.v1.json) | The kill switch stopped an agent, an App or a tenant (FR-SEC-13). |
+| `security.resumed` | fact | Security Kernel | [security.resumed.v1](schemas/events/security.resumed.v1.json) | A suspension ended. |
+| `budget.warning` | fact | Model Kernel | [budget.warning.v1](schemas/events/budget.warning.v1.json) | A soft budget limit was reached. |
 | `budget.exceeded` | fact | Model Kernel, Workflow Engine, Event Fabric | [budget.exceeded.v1](schemas/events/budget.exceeded.v1.json) | A hard budget limit was hit. |
 | `system.dlq.added` | fact | Event Fabric | [system.dlq.added.v1](schemas/events/system.dlq.added.v1.json) | An event was dead-lettered (FR-EVT-08). |
 | `system.consumer.lagging` | fact | Event Fabric | *pending* | A consumer group is falling behind. |

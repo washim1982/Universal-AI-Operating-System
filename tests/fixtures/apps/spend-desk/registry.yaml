@@ -1,0 +1,6 @@
+# Set AIOS_MODEL_REGISTRY to this file. These prices are invented, and high, so that a few recorded
+# calls reach the limits in the App's model policy. Each call is 1,000 prompt tokens, 600 of them
+# from the provider's cache, and 1,000 tokens of answer.
+models:
+  - {id: openai/dear, model: dear, prices: {input: 10.0, output: 10.0, cacheRead: 1.0}}
+  - {id: openai/cheap, model: cheap, prices: {input: 2.0, output: 2.0}}

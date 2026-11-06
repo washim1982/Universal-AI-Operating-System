@@ -22,6 +22,25 @@
     "observed": {
       "title": "Observed",
       "type": "number"
+    },
+    "level": {
+      "anyOf": [
+        {
+          "enum": [
+            "run",
+            "user",
+            "app",
+            "tenant"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Whose money ran out.",
+      "title": "Level"
     }
   },
   "required": [

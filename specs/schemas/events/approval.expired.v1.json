@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/approval.expired/1",
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Approval",
+      "type": "string"
+    },
+    "approved": {
+      "default": false,
+      "description": "A policy let it go ahead without a person.",
+      "title": "Approved",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "approval"
+  ],
+  "title": "approval.expired v1 payload",
+  "type": "object"
+}

@@ -1,15 +1,16 @@
 """The Cedar policy engine (ADR-007): compile AIOS Policy manifests to Cedar and decide requests.
 
-Requires the ``policy`` extra (``cedarpy``, the Python binding of the Rust Cedar library).
-
 How AIOS concepts map to Cedar:
 
 * **Entities.** ``Tenant``; ``App`` and ``Role`` in a tenant; ``Agent`` in its App and roles;
-  ``User`` in its roles; ``Service``; ``System``. Policy subjects become ``principal ==`` (agent,
-  user) or ``principal in`` (app, role) constraints.
+  ``User`` and ``Service`` in their roles; ``System``. Policy subjects become ``principal ==``
+  (agent, user) or ``principal in`` (app, role) constraints.
 * **Tools.** A ``Tool`` entity carries its name split into ``provider`` / ``object`` / ``verb``
   plus its ``sideEffect`` class. Tool patterns compile to equality checks on those tokens, which
   keeps the topic-grammar semantics exact: Cedar's ``like "a.*.c"`` would let ``*`` span tokens.
+* **Ceilings.** An agent's manifest (``tools.allow``, ``memory.read``, ``memory.write``) is the most
+  it may ever do. Each compiles to ``forbid … unless { <what it lists> }``, so a broad rule for a
+  whole App can't hand a tool or a memory scope to an agent that was not built to use it.
 * **Approvals.** A ``requireApproval`` rule compiles to ``forbid … unless { context.approved }``.
   A request that only such rules deny, and that is allowed once approved, needs approval.
 * **Fail closed.** Evaluation errors, requests that don't match the schema and tool inputs that
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
@@ -28,8 +30,10 @@ import cedarpy
 from aios.core.errors import InvalidPolicyError
 from aios.core.manifests import ApprovalRule, Comparison, PolicyManifest, PolicyRule
 from aios.core.policy import (
+    MEMORY_ACTIONS,
     Actor,
     Effect,
+    OnTimeout,
     PolicyAction,
     PolicyDecision,
     PolicyDecisionPoint,
@@ -39,6 +43,7 @@ from aios.security.cedar_schema import InputType, schema_text
 
 __all__ = [
     "CedarDecisionPoint",
+    "Ceiling",
     "CompiledPolicies",
     "CompiledRule",
     "compile_policies",
@@ -72,6 +77,8 @@ class CompiledRule:
     """``<policy name>/<allow|deny|approval>/<index>``; recorded with every decision."""
     kind: RuleKind
     approvers: tuple[str, ...] = ()
+    timeout: timedelta | None = None
+    on_timeout: OnTimeout = "deny"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,11 +91,27 @@ class CompiledPolicies:
     input_fields: Mapping[str, InputType] = field(default_factory=dict[str, InputType])
 
 
-def compile_policies(manifests: Iterable[PolicyManifest]) -> CompiledPolicies:
+@dataclass(frozen=True, slots=True)
+class Ceiling:
+    """The most an agent's manifest lets it do, whatever a policy allows."""
+
+    tools: Sequence[str] = ()
+    read: Sequence[str] = ()
+    """Memory scopes it may read."""
+    write: Sequence[str] = ()
+
+
+def compile_policies(
+    manifests: Iterable[PolicyManifest],
+    *,
+    ceilings: Mapping[str, Ceiling] | None = None,
+) -> CompiledPolicies:
     """Compile Policy manifests to one Cedar policy set and validate it against the schema."""
     compiler = _Compiler()
     for manifest in manifests:
         compiler.add(manifest)
+    for agent, ceiling in (ceilings or {}).items():
+        compiler.ceiling(agent, ceiling)
     return compiler.finish()
 
 
@@ -110,16 +133,51 @@ class _Compiler:
         for kind, rules in groups:
             for index, rule in enumerate(rules):
                 rule_id = f"{manifest.metadata.name}/{kind}/{index}"
-                approvers = tuple(rule.approvers) if isinstance(rule, ApprovalRule) else ()
                 self.policies.append(self._policy(rule_id, kind, principal, rule))
-                self.rules.append(CompiledRule(rule_id, kind, approvers))
+                if isinstance(rule, ApprovalRule):
+                    self.rules.append(
+                        CompiledRule(
+                            rule_id, kind, tuple(rule.approvers), rule.timeout, rule.on_timeout
+                        )
+                    )
+                else:
+                    self.rules.append(CompiledRule(rule_id, kind))
+
+    def ceiling(self, agent: str, ceiling: Ceiling) -> None:
+        """Forbid every tool and memory scope the manifest doesn't name, whatever else allows it."""
+        tool = PolicyAction.TOOL_INVOKE
+        tools = [_tool_expression(PolicyRule(action=tool, resource=name)) for name in ceiling.tools]
+        self._forbid_beyond(f"{agent}/ceiling/0", agent, tool, " || ".join(f"({t})" for t in tools))
+        for index, action, scopes in (
+            (1, PolicyAction.MEMORY_READ, ceiling.read),
+            (2, PolicyAction.MEMORY_WRITE, ceiling.write),
+        ):
+            names = ", ".join(f"MemoryScope::{_string(scope)}" for scope in scopes)
+            allowed = f"[{names}].contains(resource)" if names else ""
+            self._forbid_beyond(f"{agent}/ceiling/{index}", agent, action, allowed)
+
+    def _forbid_beyond(self, rule_id: str, agent: str, action: PolicyAction, allowed: str) -> None:
+        lines = [
+            f"@id({_string(rule_id)})",
+            "forbid (",
+            f"  principal == Agent::{_string(agent)},",
+            f"  action == Action::{_string(action.value)},",
+            "  resource",
+            ")",
+        ]
+        if allowed:
+            lines.append(f"unless {{ {allowed} }}")
+        self.policies.append("\n".join(lines) + ";")
+        self.rules.append(CompiledRule(rule_id, "deny"))
 
     def _policy(self, rule_id: str, kind: RuleKind, principal: str, rule: PolicyRule) -> str:
         if rule.action is PolicyAction.TOOL_INVOKE:
             resource, conditions = _tool_constraints(rule)
-        else:
+        elif rule.action in MEMORY_ACTIONS:
             scopes = ", ".join(f"MemoryScope::{_string(scope)}" for scope in rule.scopes or ())
             resource, conditions = "resource", [f"[{scopes}].contains(resource)"]
+        else:
+            resource, conditions = "resource", []
         if rule.when.context_tainted is not None:
             conditions.append(
                 "context.tainted" if rule.when.context_tainted else "!context.tainted"
@@ -196,7 +254,20 @@ def _tool_constraints(rule: PolicyRule) -> tuple[str, list[str]]:
     if rule.when.side_effect is not None:
         classes = ", ".join(_string(effect.value) for effect in rule.when.side_effect)
         conditions.append(f"[{classes}].contains(resource.sideEffect)")
+    if rule.when.except_tools:
+        spared = [PolicyRule(action=rule.action, resource=name) for name in rule.when.except_tools]
+        conditions.append(
+            "!(" + " || ".join(f"({_tool_expression(found)})" for found in spared) + ")"
+        )
     return resource, conditions
+
+
+def _tool_expression(rule: PolicyRule) -> str:
+    """A rule's tool pattern as one boolean expression, for use in ``unless``."""
+    resource, conditions = _tool_constraints(rule)
+    if resource != "resource":
+        return resource
+    return " && ".join(conditions) if conditions else "true"
 
 
 def _string(value: str) -> str:
@@ -229,9 +300,10 @@ class _Rejected(Exception):
 
 
 class CedarDecisionPoint(PolicyDecisionPoint):
-    """Decides requests for one tenant against a compiled policy set."""
+    """Decides requests against a compiled policy set: one tenant's, or with ``tenant=None`` a
+    set that every tenant shares, such as the built-in roles."""
 
-    def __init__(self, compiled: CompiledPolicies, *, tenant: str) -> None:
+    def __init__(self, compiled: CompiledPolicies, *, tenant: str | None) -> None:
         self.compiled = compiled
         self.tenant = tenant
         self._policies = cedarpy.PolicySet.from_str(compiled.text)
@@ -239,16 +311,20 @@ class CedarDecisionPoint(PolicyDecisionPoint):
 
     @classmethod
     def from_manifests(
-        cls, manifests: Iterable[PolicyManifest], *, tenant: str
+        cls,
+        manifests: Iterable[PolicyManifest],
+        *,
+        tenant: str | None,
+        ceilings: Mapping[str, Ceiling] | None = None,
     ) -> CedarDecisionPoint:
-        return cls(compile_policies(manifests), tenant=tenant)
+        return cls(compile_policies(manifests, ceilings=ceilings), tenant=tenant)
 
     async def decide(self, request: PolicyRequest) -> PolicyDecision:
         return self.decide_now(request)
 
     def decide_now(self, request: PolicyRequest) -> PolicyDecision:
         """The synchronous decision; Cedar runs in-process in microseconds."""
-        if request.tenant != self.tenant:
+        if self.tenant is not None and request.tenant != self.tenant:
             return PolicyDecision(Effect.DENY, reason=f"policies of tenant {self.tenant!r} only")
         try:
             decisions = [self._evaluate(request, request.actor)]
@@ -279,11 +355,16 @@ class CedarDecisionPoint(PolicyDecisionPoint):
             )
             if retried.decision == cedarpy.Decision.Allow:
                 approvers = tuple(dict.fromkeys(a for rule in rules for a in rule.approvers))
+                timeout, on_timeout = _strictest(
+                    [(rule.timeout, rule.on_timeout) for rule in rules]
+                )
                 return PolicyDecision(
                     Effect.REQUIRE_APPROVAL,
                     tuple(rule.id for rule in rules),
                     approvers,
                     "allowed once approved",
+                    timeout,
+                    on_timeout,
                 )
         return PolicyDecision(
             Effect.DENY,
@@ -326,15 +407,16 @@ class CedarDecisionPoint(PolicyDecisionPoint):
             "Agent": [app, tenant, *roles],
             "User": [tenant, *roles],
             "App": [tenant],
-            "Service": [tenant],
+            "Service": [tenant, *roles],
             "System": [],
         }
         entities: list[dict[str, Any]] = [
             {"uid": tenant, "attrs": {}, "parents": []},
             *({"uid": role, "attrs": {}, "parents": [tenant]} for role in roles),
             {"uid": principal, "attrs": {}, "parents": parents[principal["type"]]},
-            self._resource(request),
         ]
+        if request.resource.type != "Tenant":
+            entities.append(self._resource(request))
         if principal != app:
             entities.append({"uid": app, "attrs": {}, "parents": [tenant]})
         return entities
@@ -373,6 +455,15 @@ class CedarDecisionPoint(PolicyDecisionPoint):
         return encoded
 
 
+def _strictest(
+    limits: Sequence[tuple[timedelta | None, OnTimeout]],
+) -> tuple[timedelta | None, OnTimeout]:
+    """The shortest time any rule gives, and silence means no unless every rule says otherwise."""
+    timeouts = [timeout for timeout, _ in limits if timeout is not None]
+    approve = all(on_timeout == "approve" for _, on_timeout in limits)
+    return (min(timeouts) if timeouts else None), ("approve" if approve else "deny")
+
+
 def _intersect(decisions: Sequence[PolicyDecision]) -> PolicyDecision:
     """Combine the agent's and the user's decisions: both must allow (FR-SEC-05)."""
     for decision in decisions:
@@ -381,9 +472,12 @@ def _intersect(decisions: Sequence[PolicyDecision]) -> PolicyDecision:
     approvals = [d for d in decisions if d.effect is Effect.REQUIRE_APPROVAL]
     if not approvals:
         return PolicyDecision(Effect.ALLOW, tuple(p for d in decisions for p in d.policies))
+    timeout, on_timeout = _strictest([(d.timeout, d.on_timeout) for d in approvals])
     return PolicyDecision(
         Effect.REQUIRE_APPROVAL,
         tuple(dict.fromkeys(p for d in approvals for p in d.policies)),
         tuple(dict.fromkeys(a for d in approvals for a in d.approvers)),
         "allowed once approved",
+        timeout,
+        on_timeout,
     )

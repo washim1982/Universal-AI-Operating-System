@@ -43,6 +43,7 @@
     },
     "ModelBudgets": {
       "additionalProperties": false,
+      "description": "Each limit is hard. The soft limit is ``softAt`` of it (FR-MOD-08).",
       "properties": {
         "perRunUSD": {
           "anyOf": [
@@ -57,6 +58,32 @@
           "default": null,
           "title": "Perrunusd"
         },
+        "perUserMonthlyUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perusermonthlyusd"
+        },
+        "perAppMonthlyUSD": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perappmonthlyusd"
+        },
         "perTenantMonthlyUSD": {
           "anyOf": [
             {
@@ -69,6 +96,13 @@
           ],
           "default": null,
           "title": "Pertenantmonthlyusd"
+        },
+        "softAt": {
+          "default": 0.8,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Softat",
+          "type": "number"
         },
         "onSoftLimit": {
           "default": "warn",
@@ -141,6 +175,20 @@
           ],
           "default": null,
           "title": "Agent"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "const": "soft",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only once a soft budget limit is reached",
+          "title": "Budget"
         }
       },
       "title": "ModelMatch",
@@ -190,6 +238,7 @@
             {
               "enum": [
                 "public",
+                "zero-retention",
                 "private"
               ],
               "type": "string"

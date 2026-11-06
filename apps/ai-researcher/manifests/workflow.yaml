@@ -4,7 +4,7 @@ apiVersion: aios/v1alpha1
 kind: Workflow
 metadata:
   name: research-report
-  version: 1.0.0
+  version: 1.1.0
 spec:
   description: Plan, research in parallel, analyse, draft and review a cited report.
   output: ${draft.output}                     # the run returns the reviewed report
@@ -18,7 +18,7 @@ spec:
       capability: research.web
       fromPlan: plan.output.tasks
       maxParallel: 5
-      timeout: 5m
+      timeout: 15m                            # fan-out items of one run still run one at a time
     - id: analyze
       type: task
       capability: analysis
@@ -28,6 +28,7 @@ spec:
     - id: review
       type: task
       capability: review
+      input: { report: "${draft.output}", findings: "${analyze.output.findings}" }
       onResult: { reject: draft }
       maxLoops: 2
   budget:

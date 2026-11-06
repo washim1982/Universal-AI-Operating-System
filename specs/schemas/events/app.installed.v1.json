@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/app.installed/1",
+  "additionalProperties": false,
+  "properties": {
+    "app": {
+      "title": "App",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "previous": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Previous"
+    },
+    "digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Digest"
+    },
+    "by": {
+      "title": "By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "app",
+    "version",
+    "by"
+  ],
+  "title": "app.installed v1 payload",
+  "type": "object"
+}

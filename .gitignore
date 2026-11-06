@@ -6,6 +6,12 @@ build/
 dist/
 .venv/
 
+# The console
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
 # Tooling caches and reports
 .pytest_cache/
 .ruff_cache/

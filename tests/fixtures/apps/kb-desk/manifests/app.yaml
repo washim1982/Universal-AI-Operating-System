@@ -1,0 +1,39 @@
+# A small App for trying the threat controls, with no model and no accounts to set up. One step
+# reads the knowledge base, and the next acts on it. The acting agent stands in for a model that
+# believes everything it reads, so what you see is the platform stopping it.
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: kb-desk, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: answer}]
+  agents: [lookup-agent, act-agent]
+  workflows: [answer]
+  egress:
+    allow: [docs.example.com, localhost]
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: lookup-agent, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "kb_desk.agents:lookup"}
+  capabilities: [{name: kb.lookup}]
+  memory: {read: [app]}
+  limits: {maxSteps: 3, timeout: 1m}
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: act-agent, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "kb_desk.agents:act"}
+  capabilities: [{name: kb.act}]
+  tools: {allow: ["filesystem.file.write", "http.page.fetch"]}
+  memory: {write: [app]}
+  limits: {maxSteps: 5, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  steps:
+    - {id: lookup, type: task, capability: kb.lookup, input: {message: "${input.message}"}}
+    - {id: act, type: task, capability: kb.act}

@@ -5,8 +5,8 @@ Manifests are YAML documents with Kubernetes-style ``apiVersion`` / ``kind`` / `
 ``spec``. YAML keys are camelCase; the Python attributes are snake_case.
 
 The Workflow manifest is the v0.1 draft of the graph IR that the Python DSL (§7.6) compiles to.
-It covers the node types the reference apps need first (task, dynamic fan-out, approval, tool);
-WP 1.3 adds the rest of FR-WF-02.
+It covers the node types the reference apps need first (task, dynamic fan-out, approval, tool,
+wait for a signal); WP 1.3 adds the rest of FR-WF-02.
 """
 
 from __future__ import annotations
@@ -32,14 +32,18 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+from aios.core.catalog import Risk
 from aios.core.envelope import DataClass
-from aios.core.policy import PolicyAction, SideEffect
+from aios.core.memory import MemoryScope
+from aios.core.policy import MEMORY_ACTIONS, OnTimeout, PolicyAction, SideEffect
+from aios.core.schedule import Cron
 from aios.core.topics import (
     DNS_LABEL_PATTERN,
     PATTERN_REGEX,
     TOKEN_PATTERN,
     CapabilityName,
     CapabilityPattern,
+    SignalName,
     TopicPattern,
     max_match_length,
     min_match_length,
@@ -130,7 +134,6 @@ ToolPattern = Annotated[
 SecretName = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*$")]
 Selector = Annotated[str, StringConstraints(pattern=r"^(role|user|group):[A-Za-z0-9._@-]+$")]
 
-MemoryScope = Literal["working", "session", "user", "agent", "app", "tenant", "global"]
 Isolation = Literal["inprocess", "process", "container", "sandbox"]
 
 
@@ -241,15 +244,49 @@ class AgentManifest(_Model):
 class ChatEntrypoint(_Model):
     type: Literal["chat"]
     workflow: Name
+    untrusted_input: bool = Field(
+        default=False,
+        description="Callers pass on someone else's words, e.g. a public chat widget",
+    )
 
 
 class EventEntrypoint(_Model):
     type: Literal["event"]
     on: TopicPattern
     workflow: Name
+    untrusted_input: bool = Field(
+        default=True, description="Events usually carry what someone outside wrote, e.g. a ticket"
+    )
 
 
-Entrypoint = Annotated[ChatEntrypoint | EventEntrypoint, Field(discriminator="type")]
+def _cron(expression: str) -> str:
+    Cron.parse(expression)
+    return expression
+
+
+class ScheduleEntrypoint(_Model):
+    type: Literal["schedule"]
+    cron: Annotated[str, AfterValidator(_cron)] = Field(
+        description="minute hour day month weekday, in UTC"
+    )
+    workflow: Name
+    input: dict[str, Any] = Field(default_factory=dict[str, Any])
+
+
+class WebhookEntrypoint(_Model):
+    type: Literal["webhook"]
+    name: Name = Field(description="The last part of /v1/hooks/<tenant>/<app>/<name>")
+    workflow: Name
+    secret: SecretName = Field(description="Signs requests; declared in spec.config.secrets")
+    untrusted_input: bool = Field(
+        default=True, description="A webhook usually carries what someone outside wrote"
+    )
+
+
+Entrypoint = Annotated[
+    ChatEntrypoint | EventEntrypoint | ScheduleEntrypoint | WebhookEntrypoint,
+    Field(discriminator="type"),
+]
 
 
 class ToolRef(_Model):
@@ -280,6 +317,17 @@ class Permissions(_Model):
     data_classes: list[DataClass] = Field(default_factory=lambda: [DataClass.INTERNAL])
 
 
+Host = Annotated[str, StringConstraints(pattern=r"^[a-z0-9-]+(\.[a-z0-9-]+)*$")]
+"""A host name; it also covers everything below it."""
+
+
+class Egress(_Model):
+    """Where this App's tools may send data (FR-SEC-10). Without ``allow``, no App list applies."""
+
+    allow: list[Host] | None = None
+    tools: dict[ToolName, list[Host]] = Field(default_factory=dict[str, list[Host]])
+
+
 class AppConfig(_Model):
     config_schema: str | None = Field(default=None, alias="schema")
     secrets: list[SecretName] = Field(default_factory=list)
@@ -298,6 +346,7 @@ class AppSpec(_Model):
     tools: list[ToolRef] = []
     memory: AppMemory = Field(default_factory=AppMemory)
     permissions: Permissions = Field(default_factory=Permissions)
+    egress: Egress = Field(default_factory=Egress)
     policies: list[Name] = Field(default_factory=list)
     model_policy: Name = "default"
     config: AppConfig = Field(default_factory=AppConfig)
@@ -310,6 +359,19 @@ class AppSpec(_Model):
                 raise ValueError(
                     f"entrypoint {entrypoint.type!r} uses workflow {entrypoint.workflow!r}, "
                     "which is not listed in spec.workflows"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _webhooks_can_be_told_apart_and_checked(self) -> Self:
+        hooks = [e for e in self.entrypoints if isinstance(e, WebhookEntrypoint)]
+        if len({h.name for h in hooks}) != len(hooks):
+            raise ValueError("two webhooks share a name")
+        for hook in hooks:
+            if hook.secret not in self.config.secrets:
+                raise ValueError(
+                    f"webhook {hook.name!r} is signed with {hook.secret!r}, "
+                    "which is not listed in spec.config.secrets"
                 )
         return self
 
@@ -361,7 +423,9 @@ class DynamicStep(_StepBase):
 class ApprovalStep(_StepBase):
     type: Literal["approval"]
     approvers: list[Selector] = Field(min_length=1)
-    on_timeout: Literal["deny", "approve", "escalate"] = "deny"
+    on_timeout: OnTimeout = "deny"
+    summary: str | None = Field(default=None, description="What the approver is asked, in a line")
+    risk: Risk = "medium"
 
 
 class ToolStep(_StepBase):
@@ -370,7 +434,16 @@ class ToolStep(_StepBase):
     input: dict[str, Any] = Field(default_factory=dict)
 
 
-Step = Annotated[TaskStep | DynamicStep | ApprovalStep | ToolStep, Field(discriminator="type")]
+class WaitStep(_StepBase):
+    """Waits for a signal sent to the run (FR-WF-02); its data becomes the step's output."""
+
+    type: Literal["wait"]
+    signal: SignalName
+
+
+Step = Annotated[
+    TaskStep | DynamicStep | ApprovalStep | ToolStep | WaitStep, Field(discriminator="type")
+]
 
 
 class WorkflowBudget(_Model):
@@ -500,6 +573,9 @@ class Condition(_Model):
     input: dict[InputField, Comparison] = Field(
         default_factory=dict, description="Comparisons against top-level tool-input fields"
     )
+    except_tools: list[ToolPattern] = Field(
+        default_factory=list, description="Tools this rule doesn't apply to"
+    )
 
 
 class PolicyRule(_Model):
@@ -517,18 +593,25 @@ class PolicyRule(_Model):
         if self.action is PolicyAction.TOOL_INVOKE:
             if self.scopes is not None:
                 raise ValueError("tool.invoke rules use 'resource', not 'scopes'")
-        else:
-            if self.scopes is None:
-                raise ValueError(f"{self.action.value} rules need 'scopes'")
-            if self.resource is not None:
-                raise ValueError(f"{self.action.value} rules use 'scopes', not 'resource'")
-            if self.when.side_effect is not None or self.when.input:
-                raise ValueError("sideEffect and input conditions apply to tool.invoke only")
+            return self
+        if self.resource is not None:
+            hint = "use 'scopes', not 'resource'" if self.action in MEMORY_ACTIONS else "have none"
+            raise ValueError(f"{self.action.value} rules {hint}: 'resource' is for tool.invoke")
+        if self.when.side_effect is not None or self.when.input or self.when.except_tools:
+            raise ValueError("sideEffect, input and exceptTools apply to tool.invoke only")
+        if self.action in MEMORY_ACTIONS and self.scopes is None:
+            raise ValueError(f"{self.action.value} rules need 'scopes'")
+        if self.action not in MEMORY_ACTIONS and self.scopes is not None:
+            raise ValueError(f"only memory rules use 'scopes', not {self.action.value}")
         return self
 
 
 class ApprovalRule(PolicyRule):
     approvers: list[Selector] = Field(min_length=1)
+    timeout: Duration | None = Field(default=None, description="How long a person has to answer")
+    on_timeout: OnTimeout = Field(
+        default="deny", description="Only a rule can let an action go ahead unanswered"
+    )
 
 
 class PolicySubject(_Model):
@@ -563,17 +646,29 @@ class PolicySubject(_Model):
         return self._given()[0][1]
 
 
+class TaintRules(_Model):
+    """FR-SEC-09's "configurable per policy": where an App accepts the risk, and says so."""
+
+    exempt: list[ToolPattern] = Field(
+        default_factory=list,
+        description="Risky tools that need no approval while the run holds untrusted content",
+    )
+
+
 class PolicySpec(_Model):
     description: str = ""
     subject: PolicySubject
     allow: list[PolicyRule] = []
     deny: list[PolicyRule] = []
     require_approval: list[ApprovalRule] = []
+    taint: TaintRules = Field(default_factory=TaintRules)
 
     @model_validator(mode="after")
     def _has_rules(self) -> Self:
-        if not (self.allow or self.deny or self.require_approval):
-            raise ValueError("a policy needs at least one allow, deny or requireApproval rule")
+        if not (self.allow or self.deny or self.require_approval or self.taint.exempt):
+            raise ValueError("a policy needs at least one rule")
+        if self.taint.exempt and self.subject.kind != "app":
+            raise ValueError("taint exemptions apply to a whole App: use subject: {app: ...}")
         return self
 
 
@@ -602,10 +697,13 @@ class ModelMatch(_Model):
     task: str | None = None
     data_class: DataClass | None = None
     agent: Name | None = None
+    budget: Literal["soft"] | None = Field(
+        default=None, description="Only once a soft budget limit is reached"
+    )
 
 
 class ModelRequirement(_Model):
-    deployment: Literal["public", "private"] | None = None
+    deployment: Literal["public", "zero-retention", "private"] | None = None
 
 
 class ModelRule(_Model):
@@ -624,8 +722,13 @@ class ModelRetries(_Model):
 
 
 class ModelBudgets(_Model):
+    """Each limit is hard. The soft limit is ``softAt`` of it (FR-MOD-08)."""
+
     per_run_usd: float | None = Field(default=None, ge=0, alias="perRunUSD")
+    per_user_monthly_usd: float | None = Field(default=None, ge=0, alias="perUserMonthlyUSD")
+    per_app_monthly_usd: float | None = Field(default=None, ge=0, alias="perAppMonthlyUSD")
     per_tenant_monthly_usd: float | None = Field(default=None, ge=0, alias="perTenantMonthlyUSD")
+    soft_at: float = Field(default=0.8, gt=0, le=1, alias="softAt")
     on_soft_limit: Literal["downgrade", "warn", "deny"] = "warn"
 
 

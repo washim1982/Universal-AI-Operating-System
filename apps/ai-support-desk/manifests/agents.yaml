@@ -5,8 +5,6 @@ spec:
   description: Classifies the ticket and extracts the customer's request.
   runtime: { type: python, entrypoint: ai_support_desk.agents:triage }
   capabilities: [{ name: support.triage }]
-  tools: { allow: ["zendesk.ticket.get"] }
-  memory: { read: [session, user] }
   model: { task: classification }
   limits: { maxSteps: 3, maxCostUSD: 0.05, timeout: 1m }
 ---
@@ -29,9 +27,9 @@ spec:
   runtime: { type: python, entrypoint: ai_support_desk.agents:resolve }
   capabilities: [{ name: support.resolve }]
   tools:
-    allow: ["zendesk.ticket.get", "stripe.refund.create"]
+    allow: ["stripe.refund.create"]
     deny: ["stripe.customer.delete"]
-  memory: { read: [session, user, app], write: [user] }
+  memory: { write: [user] }
   model: { task: reasoning }
   limits: { maxSteps: 8, maxCostUSD: 0.20, timeout: 25h }
   isolation: process

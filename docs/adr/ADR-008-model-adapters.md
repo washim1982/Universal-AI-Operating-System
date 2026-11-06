@@ -47,5 +47,11 @@ change.
 - Adapters: Anthropic (`anthropic` SDK, Messages API with `output_config` structured output and
   the server-side refusal fallback on models that support it; no sampling parameters, which the
   API rejects since 2026-10-21), OpenAI and OpenAI-compatible endpoints (`openai` SDK).
-- Not yet done: tool calling, embeddings and token streaming in the provider interface
-  (FR-MOD-01), the Google adapter (WP 2.5), and the model-provider conformance suite.
+- Embeddings (`ModelGateway.embed`, `ctx.model.embed`) share routing, the data-class guard,
+  retries, fallback and accounting with generation. Anthropic has no embeddings API, so its
+  adapter refuses and the next candidate answers. `model.call.completed` records the size of an
+  embedding, never its vectors: they are too large for the log, so a task re-executed after a
+  crash embeds again, and both calls are recorded because both are billed.
+- Google Gemini (`google-genai` SDK), in `gemini.py` because the SDK takes most of a second to
+  import. Every adapter passes `tests/unit/models/test_providers.py`.
+- Not yet done: tool calling and token streaming in the provider interface (FR-MOD-01).

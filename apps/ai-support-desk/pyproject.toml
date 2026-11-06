@@ -1,0 +1,17 @@
+[project]
+name = "ai-support-desk"
+version = "0.3.0"
+description = "AIOS reference app: tier-1 customer support with refunds a person can stop."
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = ["aios"]
+
+[tool.uv.sources]
+aios = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_support_desk"]

@@ -19,8 +19,8 @@ and trace context, and it should be readable by existing tools.
   (ADR-003).
 - Add **extension attributes** (lowercase alphanumeric, as CloudEvents requires): `tenantid`,
   `appid`, `runid`, `correlationid`, `causationid`, `hopcount`, `principal`, `onbehalfof`,
-  `dataclass`, `traceparent` (the CloudEvents distributed-tracing extension) and
-  `idempotencykey`.
+  `dataclass`, `tainted` (added in WP 2.3, ADR-017), `traceparent` (the CloudEvents
+  distributed-tracing extension) and `idempotencykey`.
 - **Ids are ULIDs**: unique, time-sortable, 26 characters; generated monotonically per process.
 - `time` is always present and always UTC.
 - Events are **immutable**. Causal children are created with `Event.derive()`, which copies the

@@ -8,6 +8,7 @@
       "properties": {
         "input_tokens": {
           "default": 0,
+          "description": "The whole prompt, cached or not.",
           "minimum": 0,
           "title": "Input Tokens",
           "type": "integer"
@@ -16,6 +17,20 @@
           "default": 0,
           "minimum": 0,
           "title": "Output Tokens",
+          "type": "integer"
+        },
+        "cache_read_tokens": {
+          "default": 0,
+          "description": "Prompt tokens a provider served from its cache.",
+          "minimum": 0,
+          "title": "Cache Read Tokens",
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "default": 0,
+          "description": "Prompt tokens written to a provider's cache.",
+          "minimum": 0,
+          "title": "Cache Write Tokens",
           "type": "integer"
         },
         "cost_usd": {
@@ -71,6 +86,15 @@
       "description": "Routing hint the policy resolved.",
       "title": "Task"
     },
+    "operation": {
+      "default": "generate",
+      "enum": [
+        "generate",
+        "embed"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
     "provider": {
       "title": "Provider",
       "type": "string"
@@ -100,14 +124,14 @@
       "title": "Stop Reason"
     },
     "output_text": {
-      "description": "The recorded completion (ADR-010), for replay.",
+      "description": "The recorded completion (ADR-010), for replay. Empty for embeddings.",
       "title": "Output Text",
       "type": "string"
     },
     "output": {
       "$ref": "#/$defs/JsonValue",
       "default": null,
-      "description": "Parsed structured output, if any."
+      "description": "Parsed structured output, or the size of an embedding (never its vectors)."
     },
     "fallback_from": {
       "description": "Candidates that failed before this one.",
@@ -116,6 +140,31 @@
       },
       "title": "Fallback From",
       "type": "array"
+    },
+    "downgraded": {
+      "default": false,
+      "description": "A soft budget limit chose this model.",
+      "title": "Downgraded",
+      "type": "boolean"
+    },
+    "replayed": {
+      "default": false,
+      "description": "Answered from a recorded run: nothing called, nothing spent",
+      "title": "Replayed",
+      "type": "boolean"
+    },
+    "request_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What was asked, so a replay can tell when it asks otherwise",
+      "title": "Request Hash"
     }
   },
   "required": [

@@ -13,21 +13,25 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, Self
 
-from aios.controlplane import Runtime, load_app
+from aios.controlplane import ANONYMOUS, Runtime, load_app
 from aios.core.cassettes import Cassette, CassetteMode
 from aios.core.catalog import ModelCallCompleted, Usage
 from aios.core.envelope import Event
+from aios.core.human import Approval
+from aios.core.identity import Identity
 from aios.core.ids import new_ulid
 from aios.core.manifests import ModelPolicyManifest, ModelRule
 from aios.fabric import EventBus, InMemoryEventBus, Scope
 from aios.kernel import Context, agent, definition_of
 from aios.kernel.definitions import Handler
+from aios.memory import MemoryService, SyncReport, documents_in
 from aios.models import Provider
 from aios.testing.mcp import FakeMCPServer, fake_mcp_server
 from aios.tools import MCPProvider, ToolProvider
@@ -66,13 +70,16 @@ class RunResult:
 
 
 class RunHandle:
-    def __init__(self, runtime: LocalRuntime, app: str, run_id: str) -> None:
+    def __init__(
+        self, runtime: LocalRuntime, app: str, run_id: str, *, tenant: str | None = None
+    ) -> None:
         self.runtime = runtime
         self.app = app
         self.run_id = run_id
+        self.tenant = tenant
 
     async def events(self) -> list[Event]:
-        return await self.runtime.runtime.events(self.app, self.run_id)
+        return await self.runtime.runtime.events(self.app, self.run_id, tenant=self.tenant)
 
     async def wait_for_event(self, type: str, timeout: float = 60.0, **data: Any) -> Event:
         """The first event of ``type`` whose data contains every ``data`` item."""
@@ -116,6 +123,7 @@ class LocalRuntime:
         cassette_mode: CassetteMode | None = None,
         durable: bool = False,
         tenant: str = DEFAULT_TENANT,
+        tenants: Sequence[str] = (),
         lease: float = 2.0,
         providers: Mapping[str, Provider] | None = None,
         tool_providers: Sequence[ToolProvider] | None = None,
@@ -123,19 +131,24 @@ class LocalRuntime:
         mode: CassetteMode = cassette_mode or os.environ.get("AIOS_CASSETTE_MODE", "replay")  # type: ignore[assignment]
         self.cassette = Cassette.open(cassettes, mode) if cassettes is not None else None
         self.durable = durable
-        self.tenant = tenant
+        self.tenants = list(tenants) or [tenant]
+        self.tenant = self.tenants[0]
         self._bus: EventBus | None = None
         self._lease = lease
         self._agents = [definition_of(handler) for handler in agents]
         self._app_dirs: list[Path] = []
+        self._app_config: Mapping[str, Any] | None = None
         self._pending: list[ToolProvider] = list(tool_providers or [])
         self._providers = providers
         self.runtime: Runtime = None  # type: ignore[assignment] - set in __aenter__
 
     @classmethod
-    def from_app(cls, path: str | Path, **options: Any) -> LocalRuntime:
+    def from_app(
+        cls, path: str | Path, *, config: Mapping[str, Any] | None = None, **options: Any
+    ) -> LocalRuntime:
         runtime = cls(**options)
         runtime._app_dirs.append(Path(path))
+        runtime._app_config = config
         return runtime
 
     @property
@@ -145,16 +158,18 @@ class LocalRuntime:
 
     async def __aenter__(self) -> Self:
         self._bus = await self._make_bus()
+        self.sandbox = Path(os.environ.get("TMP", ".")) / f"aios-sandbox-{new_ulid().lower()}"
         self.runtime = Runtime(
             self._bus,
             tenant=self.tenant,
             cassette=self.cassette,
             providers=self._providers,
             lease=self._lease,
-            sandbox=Path(os.environ.get("TMP", ".")) / f"aios-sandbox-{new_ulid().lower()}",
+            sandbox=self.sandbox,
         )
         for directory in self._app_dirs:
-            self.runtime.install(load_app(directory))
+            for tenant in self.tenants:
+                self.runtime.install(load_app(directory, self._app_config), tenant=tenant)
         if self._agents:
             self.runtime.install_agents(self._agents, app=AGENTS_APP)
         await self.runtime.start()
@@ -169,6 +184,7 @@ class LocalRuntime:
     ) -> None:
         await self.runtime.stop()
         await self.bus.close()
+        shutil.rmtree(self.sandbox, ignore_errors=True)
         if self.cassette is not None and self.cassette.recording:
             self.cassette.save()
 
@@ -184,9 +200,64 @@ class LocalRuntime:
 
     # ------------------------------------------------------------------ requests
 
-    async def chat(self, app: str, message: str) -> RunHandle:
+    async def chat(
+        self,
+        app: str,
+        message: str,
+        *,
+        tenant: str | None = None,
+        principal: str | None = None,
+    ) -> RunHandle:
         await self._bind_pending()
-        return RunHandle(self, app, await self.runtime.chat(app, message))
+        run = await self.runtime.chat(app, message, tenant=tenant, principal=principal or ANONYMOUS)
+        return RunHandle(self, app, run, tenant=tenant)
+
+    @property
+    def memory(self) -> MemoryService:
+        return self.runtime.memory
+
+    async def ingest_knowledge(
+        self, app: str, folder: str | Path, *, tenant: str | None = None
+    ) -> SyncReport:
+        """Bring a folder of documents into an App's memory, as ``aios memory ingest`` does."""
+        source, documents = documents_in(Path(folder))
+        by = Identity("system:platform", tenant or self.tenant)
+        return await self.memory.sync(by, app, documents, source=source)
+
+    async def approve(
+        self, approval: str, *, by: str = "user:approver@acme", tenant: str | None = None
+    ) -> Approval:
+        """Answer yes as ``by``, whoever the approval names."""
+        identity = Identity(by, tenant or self.tenant)
+        await self._recorded(identity.tenant, approval)
+        return await self.runtime.human.decide(identity, approval, approve=True, any_approver=True)
+
+    async def deny(
+        self, approval: str, *, by: str = "user:approver@acme", tenant: str | None = None
+    ) -> Approval:
+        identity = Identity(by, tenant or self.tenant)
+        await self._recorded(identity.tenant, approval)
+        return await self.runtime.human.decide(identity, approval, approve=False, any_approver=True)
+
+    async def _recorded(self, tenant: str, approval: str, timeout: float = 10) -> None:
+        """Wait for the Human OS to file a request. A test sees ``approval.requested`` as soon as
+        it is published, and on PostgreSQL the service that files it may not have read it yet."""
+        async with asyncio.timeout(timeout):
+            while True:
+                if await self.runtime.human.get(tenant, approval) is not None:
+                    return
+                await asyncio.sleep(0.02)
+
+    async def tool_calls(self, app: str, tool: str, *, tenant: str | None = None) -> int:
+        """How many times a tool really ran for an App, in the log."""
+        scope = Scope(tenant or self.tenant, app)
+        return len(
+            [
+                stored
+                async for stored in self.bus.replay(scope, "tool.call.completed")
+                if isinstance(stored.event.data, dict) and stored.event.data.get("tool") == tool
+            ]
+        )
 
     async def publish_and_collect(
         self, type: str, *, until: str, data: Any = None, timeout: float = 30.0

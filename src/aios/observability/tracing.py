@@ -249,8 +249,9 @@ class EventTracer:
         usage: dict[str, Any] = data.get("usage") or {}
         latency = timedelta(milliseconds=float(data.get("latency_ms", 0.0)))
         parent = span_id(event.causationid) if event.causationid else None
+        operation = semconv.OP_EMBEDDINGS if data.get("operation") == "embed" else semconv.OP_CHAT
         attributes = {
-            semconv.OPERATION: semconv.OP_CHAT,
+            semconv.OPERATION: operation,
             semconv.PROVIDER: data.get("provider"),
             semconv.REQUEST_MODEL: data.get("model"),
             semconv.RESPONSE_MODEL: data.get("model"),
@@ -261,7 +262,7 @@ class EventTracer:
             semconv.STEP: data.get("step"),
         }
         return self._span(
-            f"{semconv.OP_CHAT} {data.get('model')}",
+            f"{operation} {data.get('model')}",
             event,
             own=span_id(event.id),
             parent=parent,

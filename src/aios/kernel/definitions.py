@@ -17,7 +17,7 @@ from typing import Any, cast
 from pydantic import TypeAdapter
 
 from aios.core.envelope import Event
-from aios.core.manifests import AgentManifest, Limits, ToolAccess
+from aios.core.manifests import AgentManifest, Limits, MemoryAccess, ToolAccess
 from aios.core.topics import validate_name, validate_pattern
 
 Handler = Callable[..., Awaitable[Any]]
@@ -34,6 +34,7 @@ class AgentDefinition:
     version: str = "0.0.0"
     limits: Limits = field(default_factory=Limits)
     tools: ToolAccess = field(default_factory=ToolAccess)
+    memory: MemoryAccess = field(default_factory=MemoryAccess)
     model_task: str | None = None
     """Default routing hint for ``ctx.model.generate`` (``spec.model.task``)."""
     input_type: Any = Any
@@ -128,6 +129,7 @@ def from_manifest(manifest: AgentManifest, handler: Handler | None = None) -> Ag
         subscriptions=tuple(spec.subscriptions),
         limits=spec.limits,
         tools=spec.tools,
+        memory=spec.memory,
         model_task=spec.model.task,
     )
 

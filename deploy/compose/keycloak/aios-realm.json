@@ -1,0 +1,136 @@
+{
+  "realm": "aios",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "member" },
+      { "name": "auditor" },
+      { "name": "operator" },
+      { "name": "tenant-admin" },
+      { "name": "support-lead" }
+    ]
+  },
+  "groups": [
+    { "name": "acme", "attributes": { "aios_tenant": ["acme"] } },
+    { "name": "globex", "attributes": { "aios_tenant": ["globex"] } }
+  ],
+  "clients": [
+    {
+      "clientId": "aios-cli",
+      "name": "AIOS command line (local development only)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "aios-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "aios-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "aios tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "aios_tenant",
+            "claim.name": "aios_tenant",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "aios-console",
+      "name": "AIOS console",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://127.0.0.1:3000/auth/callback", "http://127.0.0.1:18098/auth/callback"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://127.0.0.1:3000/login##http://127.0.0.1:18098/login"
+      },
+      "protocolMappers": [
+        {
+          "name": "aios-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "aios-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "aios tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "aios_tenant",
+            "claim.name": "aios_tenant",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@acme.test",
+      "firstName": "Alice",
+      "lastName": "Acme",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": ["/acme"],
+      "realmRoles": ["member"],
+      "credentials": [{ "type": "password", "value": "XXXXXX", "temporary": false }]
+    },
+    {
+      "username": "ada",
+      "email": "ada@acme.test",
+      "firstName": "Ada",
+      "lastName": "Acme",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": ["/acme"],
+      "realmRoles": ["tenant-admin"],
+      "credentials": [{ "type": "password", "value": "XXXXXX", "temporary": false }]
+    },
+    {
+      "username": "lee",
+      "email": "lee@acme.test",
+      "firstName": "Lee",
+      "lastName": "Acme",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": ["/acme"],
+      "realmRoles": ["member", "support-lead"],
+      "credentials": [{ "type": "password", "value": "XXXXXX", "temporary": false }]
+    },
+    {
+      "username": "gina",
+      "email": "gina@globex.test",
+      "firstName": "Gina",
+      "lastName": "Globex",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": ["/globex"],
+      "realmRoles": ["tenant-admin"],
+      "credentials": [{ "type": "password", "value": "XXXXXX", "temporary": false }]
+    }
+  ]
+}

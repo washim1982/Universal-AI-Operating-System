@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/memory.ingest.started/1",
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "documents": {
+      "minimum": 0,
+      "title": "Documents",
+      "type": "integer"
+    },
+    "scope": {
+      "title": "Scope",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "documents",
+    "scope"
+  ],
+  "title": "memory.ingest.started v1 payload",
+  "type": "object"
+}

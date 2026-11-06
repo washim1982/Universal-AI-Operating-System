@@ -19,6 +19,7 @@ TOOL_NAME = "gen_ai.tool.name"
 CONVERSATION_ID = "gen_ai.conversation.id"
 
 OP_CHAT = "chat"
+OP_EMBEDDINGS = "embeddings"
 OP_INVOKE_AGENT = "invoke_agent"
 OP_EXECUTE_TOOL = "execute_tool"
 

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/task.suspended/1",
+  "additionalProperties": false,
+  "properties": {
+    "capability": {
+      "maxLength": 255,
+      "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){0,15}$",
+      "title": "Capability",
+      "type": "string"
+    },
+    "approval": {
+      "description": "What the task waits for. Nothing runs until it is decided.",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Approval",
+      "type": "string"
+    }
+  },
+  "required": [
+    "capability",
+    "approval"
+  ],
+  "title": "task.suspended v1 payload",
+  "type": "object"
+}

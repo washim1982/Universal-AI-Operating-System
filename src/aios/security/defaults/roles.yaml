@@ -1,0 +1,103 @@
+# The built-in roles (ADR-011), ordinary policies compiled into every policy set.
+# Any other role name grants nothing until a tenant's policy mentions it.
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: { name: role-member, version: 1.0.0 }
+spec:
+  subject: { role: member }
+  allow:
+    - action: approval.read
+    - action: approval.decide
+    - action: app.read
+    - action: run.start
+    - action: run.read
+    - action: tool.invoke
+    - action: memory.read
+      scopes: [working, session, user, agent, app, tenant, global]
+    - action: memory.write
+      scopes: [working, session, user, agent, app, tenant]
+---
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: { name: role-auditor, version: 1.0.0 }
+spec:
+  subject: { role: auditor }
+  allow:
+    - action: approval.read
+    - action: app.read
+    - action: run.read
+    - action: event.read
+    - action: audit.read
+---
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: { name: role-operator, version: 1.0.0 }
+spec:
+  subject: { role: operator }
+  allow:
+    - action: approval.read
+    - action: approval.decide
+    - action: app.read
+    - action: run.start
+    - action: run.read
+    - action: run.control
+    - action: event.read
+    - action: dlq.manage
+    - action: tool.invoke
+    - action: memory.read
+      scopes: [working, session, user, agent, app, tenant, global]
+    - action: memory.write
+      scopes: [working, session, user, agent, app, tenant]
+---
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: { name: role-tenant-admin, version: 1.0.0 }
+spec:
+  subject: { role: tenant-admin }
+  allow:
+    - action: approval.read
+    - action: approval.decide
+    - action: app.read
+    - action: run.start
+    - action: run.read
+    - action: run.control
+    - action: event.read
+    - action: app.manage
+    - action: dlq.manage
+    - action: audit.read
+    - action: key.manage
+    - action: memory.manage
+    - action: security.suspend
+    - action: tool.invoke
+    - action: memory.read
+      scopes: [working, session, user, agent, app, tenant, global]
+    - action: memory.write
+      scopes: [working, session, user, agent, app, tenant]
+---
+# Installing an App is running code next to every tenant, until agents are sandboxed (ADR-014).
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: { name: role-platform-admin, version: 1.0.0 }
+spec:
+  subject: { role: platform-admin }
+  allow:
+    - action: approval.read
+    - action: approval.decide
+    - action: app.install
+    - action: app.manage
+    - action: app.read
+    - action: run.start
+    - action: run.read
+    - action: run.control
+    - action: event.read
+    - action: dlq.manage
+    - action: audit.read
+    - action: key.manage
+    - action: memory.manage
+    - action: security.suspend
+    - action: metrics.read
+    - action: tool.invoke
+    - action: memory.read
+      scopes: [working, session, user, agent, app, tenant, global]
+    - action: memory.write
+      scopes: [working, session, user, agent, app, tenant]

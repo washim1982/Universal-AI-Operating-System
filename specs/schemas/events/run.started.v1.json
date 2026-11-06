@@ -2,7 +2,118 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aios://schemas/run.started/1",
   "$defs": {
-    "JsonValue": {}
+    "CopiedStep": {
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null
+        },
+        "loop": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Loop",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "CopiedStep",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "RunSource": {
+      "additionalProperties": false,
+      "description": "The run a replay, fork or retry comes from (FR-OBS-04, FR-WF-11).\n\nA **replay** runs every step again and answers each model and tool call from the source's\nrecord: nothing live, nothing spent. A **fork** keeps the source's results for the steps it\ndoesn't start again, and runs ``step`` and what follows it live, with side effects stubbed.\nA **retry** is a fork with nothing stubbed.",
+      "properties": {
+        "run": {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "title": "Run",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "replay",
+            "fork",
+            "retry"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where a fork or retry starts again",
+          "title": "Step"
+        },
+        "copied": {
+          "description": "Steps whose results are kept from the source, in the order they ran",
+          "items": {
+            "$ref": "#/$defs/CopiedStep"
+          },
+          "title": "Copied",
+          "type": "array"
+        },
+        "answers": {
+          "description": "What people and signals said in the source, given when the run gets there",
+          "items": {
+            "$ref": "#/$defs/CopiedStep"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "taint": {
+          "description": "The source's untrusted content: what a copy keeps, it keeps the taint of",
+          "items": {
+            "type": "string"
+          },
+          "title": "Taint",
+          "type": "array"
+        },
+        "step_input": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null,
+          "description": "A fork's new input for ``step``"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A registry entry every call must use",
+          "title": "Model"
+        },
+        "live": {
+          "default": false,
+          "description": "Side effects happen for real",
+          "title": "Live",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run",
+        "mode"
+      ],
+      "title": "RunSource",
+      "type": "object"
+    }
   },
   "additionalProperties": false,
   "properties": {
@@ -19,6 +130,18 @@
     "input": {
       "$ref": "#/$defs/JsonValue",
       "default": null
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The run this one replays, forks or retries"
     }
   },
   "required": [

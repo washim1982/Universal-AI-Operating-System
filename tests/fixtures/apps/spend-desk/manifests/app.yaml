@@ -1,0 +1,33 @@
+# A small App for trying budgets and prompt caching, with no model and no key to set up. Its one
+# agent asks one question, answered from a cassette, and the prices in registry.yaml do the rest.
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: spend-desk, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: answer}]
+  agents: [asker]
+  workflows: [answer]
+  modelPolicy: thrift
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: asker, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "spend_desk.agents:ask"}
+  capabilities: [{name: spend.ask}]
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  steps:
+    - {id: ask, type: task, capability: spend.ask, input: {message: "${input.message}"}}
+---
+apiVersion: aios/v1alpha1
+kind: ModelPolicy
+metadata: {name: thrift, version: 1.0.0}
+spec:
+  rules:
+    - {match: {budget: soft}, candidates: [openai/cheap]}
+  default: {candidates: [openai/dear]}
+  budgets: {perTenantMonthlyUSD: 0.04, softAt: 0.5, onSoftLimit: downgrade}

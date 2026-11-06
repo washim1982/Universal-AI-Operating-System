@@ -1,15 +1,16 @@
 """Built-in tools (WP 1.5): ``search.web.query``, ``http.page.fetch``, ``filesystem.file.*``.
 
-* **search** calls a web search API (Brave Search's by default; ``AIOS_SEARCH_API_KEY``).
-* **http** fetches pages only from allowlisted domains (``AIOS_HTTP_ALLOWED_DOMAINS``), refuses
-  IP literals, re-checks every redirect and returns text, truncated.
+* **search** calls a web search API with ``AIOS_SEARCH_API_KEY``: Brave Search's by default, or
+  Keenable's with ``AIOS_SEARCH_PROVIDER=keenable``. Snippets are truncated.
+* **http** fetches pages only from allowlisted domains (``AIOS_HTTP_ALLOWED_DOMAINS``, narrowed by
+  the App's ``spec.egress``), refuses IP literals, re-checks every redirect and returns text,
+  truncated.
 * **filesystem** reads and writes inside one sandbox directory; paths can't escape it.
 """
 
 from __future__ import annotations
 
 import html
-import ipaddress
 import os
 import re
 from collections.abc import Sequence
@@ -21,9 +22,12 @@ import httpx2
 
 from aios.core.errors import ToolDeniedError, ToolError, ToolInputError
 from aios.core.policy import SideEffect
+from aios.tools.egress import Egress
 from aios.tools.providers import NativeProvider, NativeTool, tool
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search"
+MAX_SNIPPET_CHARS = 1_000  # Keenable returns up to whole articles, which fill a small context
 MAX_REDIRECTS = 3
 _TAGS = re.compile(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", re.DOTALL | re.IGNORECASE)
 _SPACE = re.compile(r"\s+")
@@ -32,39 +36,58 @@ _SPACE = re.compile(r"\s+")
 def search_provider(
     *,
     api_key: str | None = None,
-    endpoint: str = BRAVE_SEARCH_URL,
+    backend: str | None = None,
     http_client: httpx2.AsyncClient | None = None,
 ) -> NativeProvider:
     """``search.web.query`` over a web search API."""
     key = api_key or os.environ.get("AIOS_SEARCH_API_KEY")
+    backend = backend or os.environ.get("AIOS_SEARCH_PROVIDER", "brave")
+    if backend not in ("brave", "keenable"):
+        raise ValueError(f"unknown search provider {backend!r}: use brave or keenable")
+    keenable = backend == "keenable"
+    url = KEENABLE_SEARCH_URL if keenable else BRAVE_SEARCH_URL
 
-    @tool("search.web.query", side_effect=SideEffect.READ, timeout_s=20)
+    @tool(
+        "search.web.query",
+        side_effect=SideEffect.READ,
+        timeout_s=20,
+        reaches=(urlsplit(url).hostname or "",),
+    )
     async def query(q: str, limit: int = 5) -> list[dict[str, str]]:
         """Search the web. Returns results with a title, URL and snippet."""
         if not key:
             raise ToolError("search.web.query needs AIOS_SEARCH_API_KEY")
         client = http_client or httpx2.AsyncClient(timeout=15)
         try:
-            response = await client.get(
-                endpoint,
-                params={"q": q, "count": max(1, min(limit, 20))},
-                headers={"Accept": "application/json", "X-Subscription-Token": key},
-            )
+            if keenable:
+                response = await client.post(
+                    KEENABLE_SEARCH_URL, json={"query": q}, headers={"X-API-Key": key}
+                )
+            else:
+                response = await client.get(
+                    BRAVE_SEARCH_URL,
+                    params={"q": q, "count": max(1, min(limit, 20))},
+                    headers={"Accept": "application/json", "X-Subscription-Token": key},
+                )
         except httpx2.HTTPError as exc:
             raise ToolError(f"search failed: {exc}", retryable=True) from exc
         finally:
             if http_client is None:
                 await client.aclose()
         if response.status_code >= 400:
-            raise ToolError(
-                f"search API {response.status_code}", retryable=response.status_code >= 500
-            )
-        results: list[dict[str, Any]] = response.json().get("web", {}).get("results", [])
+            status = response.status_code
+            raise ToolError(f"search API {status}", retryable=status == 429 or status >= 500)
+        body = response.json()
+        results: list[dict[str, Any]] = (
+            body.get("results", []) if keenable else body.get("web", {}).get("results", [])
+        )
         return [
             {
                 "title": str(r.get("title", "")),
                 "url": str(r.get("url", "")),
-                "snippet": _text(str(r.get("description", ""))),
+                "snippet": _text(str(r.get("snippet") or r.get("description") or ""))[
+                    :MAX_SNIPPET_CHARS
+                ],
             }
             for r in results[:limit]
         ]
@@ -82,13 +105,16 @@ def http_provider(
     domains = [d.strip().lower() for d in (allowed_domains or configured.split(",")) if d.strip()]
 
     @tool("http.page.fetch", side_effect=SideEffect.READ, timeout_s=30)
-    async def fetch(url: str, max_chars: int = 20_000) -> dict[str, Any]:
+    async def fetch(
+        url: str, max_chars: int = 20_000, egress: Egress | None = None
+    ) -> dict[str, Any]:
         """Fetch a web page from an allowed domain and return its text."""
+        allowed = egress or Egress()
         client = http_client or httpx2.AsyncClient(timeout=20, follow_redirects=False)
         try:
             current = url
             for _ in range(MAX_REDIRECTS + 1):
-                check_url(current, domains)
+                allowed.check(current, domains)
                 response = await client.get(current)
                 if response.is_redirect and "location" in response.headers:
                     current = urljoin(current, response.headers["location"])
@@ -113,21 +139,6 @@ def http_provider(
         }
 
     return NativeProvider("http", [fetch], replayable=True)
-
-
-def check_url(url: str, allowed_domains: Sequence[str]) -> None:
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    if parts.scheme not in ("http", "https") or not host:
-        raise ToolInputError(f"only http(s) URLs can be fetched: {url!r}")
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        pass
-    else:
-        raise ToolDeniedError(f"IP addresses can't be fetched: {host}")
-    if not any(host == d or host.endswith(f".{d}") for d in allowed_domains):
-        raise ToolDeniedError(f"{host} is not in the http.page.fetch allowlist")
 
 
 def _text(markup: str) -> str:
@@ -161,7 +172,7 @@ def filesystem_provider(root: str | Path) -> NativeProvider:
             raise ToolInputError(f"no such directory: {path}")
         return sorted(p.relative_to(base).as_posix() for p in target.rglob("*") if p.is_file())
 
-    @tool("filesystem.file.write", side_effect=SideEffect.WRITE)
+    @tool("filesystem.file.write", side_effect=SideEffect.WRITE, trusted=True)
     async def write(path: str, content: str) -> dict[str, Any]:
         """Write a text file in the sandbox."""
         target = resolve(path)

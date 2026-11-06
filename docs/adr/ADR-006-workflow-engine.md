@@ -58,5 +58,26 @@ Built in WP 1.3 (M1): `src/aios/workflow/` — the DSL (`dsl.py`), expression bi
   started — covers sequencing, fan-in and bounded `onResult` loops.
 - Durable timers (step timeouts, run duration) are derived from the log and rebuilt on start.
 - In-flight runs finish on the workflow version they started with (FR-WF-09).
-- Not yet done: snapshots every N events (the fold is O(run length) per trigger), signals and
-  queries, manual pause/resume, `on_error` edges and sub-graph expansion from a planner.
+- **Pause and resume (FR-WF-11).** A requested pause is a *hold*: results stay in the log
+  unanswered and nothing new starts, so a retry, a loop back and the next fan-out item all wait.
+  Resuming answers every unanswered result in log order, as if each had just arrived, which gives
+  those three cases one code path. The hold reads the log rather than counting what arrived during
+  it, because `task.*` and `run.*.requested` are separate consumer groups: a result earlier in the
+  log can reach the engine after the pause. Time held doesn't count against step timeouts or the
+  run's duration. A task already requested still finishes, because the kernel doesn't read run
+  state. So a pause takes effect at the next step or fan-out item, and a fan-out's requested items
+  all run first.
+- **Signals (FR-WF-08).** `run.signal.requested` is kept in the log until a `wait` step of that
+  name takes it, so a signal can arrive before its step starts or while the engine is down. Only
+  a hold stops the whole run; a `wait` or an approval stops just its own step.
+- Commands use one consumer group, `workflow.run-control` on `run.*.requested`, so a run's pause
+  and resume can't overtake each other. It replaces `workflow.control`: a group can't change its
+  pattern. A database from before this change keeps the old group, which nothing reads any more.
+- **Approvals (ADR-016).** A task that needs a person publishes `task.suspended`, and the engine
+  requests it again once the approval is answered. A hold stops that too, and a failure that comes
+  from an answer isn't retried. An approval step's `timeout` is the approval's own, which Human OS
+  enforces, so it can't race the engine's step timer. A step's `timeout` and the run's duration
+  count the wait.
+- Queries: `GET /v1/apps/{app}/runs/{run}` returns the fold's status, steps and waits.
+- Not yet done: snapshots every N events (the fold is O(run length) per trigger), `on_error` edges
+  and sub-graph expansion from a planner.

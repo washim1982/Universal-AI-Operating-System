@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/memory.document.synced/1",
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "scope": {
+      "title": "Scope",
+      "type": "string"
+    },
+    "added": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Added",
+      "type": "integer"
+    },
+    "updated": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Updated",
+      "type": "integer"
+    },
+    "unchanged": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Unchanged",
+      "type": "integer"
+    },
+    "removed": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Removed",
+      "type": "integer"
+    },
+    "chunks": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks",
+      "type": "integer"
+    },
+    "embedded": {
+      "default": false,
+      "description": "Chunks have vectors, not just keywords.",
+      "title": "Embedded",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "source",
+    "scope"
+  ],
+  "title": "memory.document.synced v1 payload",
+  "type": "object"
+}

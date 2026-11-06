@@ -7,6 +7,8 @@ cassettes. Written in Phase 0 as expected failures; green since M1.
 # pyright: basic, reportIndexIssue=false, reportArgumentType=false, reportCallIssue=false, reportOptionalSubscript=false, reportOptionalMemberAccess=false, reportOperatorIssue=false
 # Stories index event payloads (JSON) directly, as a reader of the event log would.
 
+import asyncio
+
 import pytest
 
 pytestmark = [pytest.mark.acceptance]
@@ -60,6 +62,33 @@ async def test_survives_a_worker_crash_without_repeating_work() -> None:
     assert result.cassette.repeated_calls == []
 
 
+async def test_a_paused_run_survives_a_worker_crash_and_finishes_when_resumed() -> None:
+    from aios.testing.runtime import LocalRuntime
+
+    async with LocalRuntime.from_app(APP, cassettes=CASSETTES, durable=True) as runtime:
+        for worker in runtime.runtime.workers:  # a recorded run is over in milliseconds otherwise
+            await worker.kill()
+        run = await runtime.chat("ai-researcher", QUESTION)
+        await run.wait_for_event("task.requested", capability="planning")
+        await runtime.runtime.pause("ai-researcher", run.run_id)
+        await run.wait_for_event("run.paused")
+        await runtime.kill_worker()
+        await runtime.restart_worker()
+        await run.wait_for_event("task.completed", capability="planning")
+        await asyncio.sleep(0.2)
+        held = await run.events()
+        await runtime.kill_worker()
+        await runtime.restart_worker()
+        await runtime.runtime.resume("ai-researcher", run.run_id)
+        result = await run.wait(timeout=180)
+
+    assert [e.data["capability"] for e in held if e.type == "task.requested"] == ["planning"]
+    assert result.status == "completed"
+    completed_steps = [e.data["step"] for e in result.events if e.type == "step.completed"]
+    assert len(completed_steps) == len(set(completed_steps))
+    assert result.cassette.repeated_calls == []
+
+
 async def test_model_policy_change_reroutes_the_planner() -> None:
     from aios.testing.runtime import LocalRuntime
 
@@ -75,8 +104,13 @@ async def test_model_policy_change_reroutes_the_planner() -> None:
 async def test_mcp_tools_are_usable_after_one_config_entry() -> None:
     from aios.testing.runtime import LocalRuntime, fake_mcp_server
 
+    pages = [  # what the recorded answers cite: a report can only cite what search returned
+        {"title": name, "url": f"https://opentelemetry.io/docs/specs/semconv/gen-ai/{name}"}
+        for name in ("", "gen-ai-spans/", "gen-ai-metrics/", "gen-ai-agent-spans/")
+    ]
+    responses = {"search.web.query": lambda _: pages}
     async with (
-        fake_mcp_server(tools=["search.web.query"]) as server,
+        fake_mcp_server(tools=["search.web.query"], responses=responses) as server,
         LocalRuntime.from_app(APP, cassettes=CASSETTES) as runtime,
     ):
         runtime.register_tool_provider("search", mcp_url=server.url)

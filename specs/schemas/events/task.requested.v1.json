@@ -61,6 +61,52 @@
       },
       "title": "TaskBudget",
       "type": "object"
+    },
+    "TaskSource": {
+      "additionalProperties": false,
+      "description": "Where a replayed, forked or retried task's run came from, as the components need it.",
+      "properties": {
+        "run": {
+          "description": "The run whose record answers this task's calls",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "title": "Run",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "replay",
+            "fork",
+            "retry"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A registry entry every call must use",
+          "title": "Model"
+        },
+        "live": {
+          "default": false,
+          "description": "Side effects happen for real. Off, they are stubbed.",
+          "title": "Live",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run",
+        "mode"
+      ],
+      "title": "TaskSource",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -126,6 +172,35 @@
         }
       ],
       "default": null
+    },
+    "resumes": {
+      "description": "Earlier executions of this task, each stopped to wait for an approval.",
+      "items": {
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+        "type": "string"
+      },
+      "title": "Resumes",
+      "type": "array"
+    },
+    "taint": {
+      "description": "Where the run's untrusted content came from.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Taint",
+      "type": "array"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set in a replay, fork or retry (FR-OBS-04, FR-WF-11)."
     }
   },
   "required": [

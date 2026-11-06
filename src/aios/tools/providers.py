@@ -16,13 +16,15 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import mcp
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, create_model
 
 from aios.core.errors import ToolError, ToolInputError
-from aios.core.manifests import ToolName
+from aios.core.manifests import SecretName, ToolName
 from aios.core.policy import SideEffect
+from aios.tools.egress import Egress
 
 
 class ToolSpec(BaseModel):
@@ -39,6 +41,12 @@ class ToolSpec(BaseModel):
     timeout_s: float = Field(default=30.0, gt=0)
     trusted: bool = Field(
         default=False, description="Output is trusted data (native, internal tools only)"
+    )
+    credentials: tuple[SecretName, ...] = Field(
+        default=(), description="Secrets the pipeline injects when the tool executes (FR-TOOL-06)"
+    )
+    reaches: tuple[str, ...] = Field(
+        default=(), description="Hosts it always connects to, whatever its arguments (FR-SEC-10)"
     )
 
     @property
@@ -64,7 +72,13 @@ class ToolProvider(ABC):
 
     @abstractmethod
     async def call(
-        self, name: str, arguments: Mapping[str, JsonValue], *, idempotency_key: str | None
+        self,
+        name: str,
+        arguments: Mapping[str, JsonValue],
+        *,
+        idempotency_key: str | None,
+        credentials: Mapping[str, str] | None = None,
+        egress: Egress | None = None,
     ) -> JsonValue: ...
 
     async def close(self) -> None:  # noqa: B027 - optional hook
@@ -74,6 +88,8 @@ class ToolProvider(ABC):
 # --------------------------------------------------------------------------- native tools
 
 ToolFunction = Callable[..., Awaitable[Any]]
+_INJECTED = ("idempotency_key", "credentials", "egress")
+"""Parameters the pipeline fills in. The model never sees them, so they can't reach a prompt."""
 
 
 class NativeTool:
@@ -83,6 +99,8 @@ class NativeTool:
         self.arguments = arguments
         parameters = inspect.signature(function).parameters
         self.takes_idempotency_key = "idempotency_key" in parameters
+        self.takes_credentials = "credentials" in parameters
+        self.takes_egress = "egress" in parameters
 
 
 def tool(
@@ -92,16 +110,24 @@ def tool(
     description: str | None = None,
     timeout_s: float = 30.0,
     trusted: bool = False,
+    credentials: Sequence[str] = (),
+    reaches: Sequence[str] = (),
 ) -> Callable[[ToolFunction], NativeTool]:
-    """Declare a native tool: an async function whose parameters become its input schema."""
+    """Declare a native tool: an async function whose parameters become its input schema.
+
+    The secrets named in ``credentials`` arrive in its ``credentials`` parameter, a mapping. A tool
+    that connects somewhere an argument names takes an ``egress`` parameter and checks every hop.
+    """
 
     def wrap(function: ToolFunction) -> NativeTool:
         if not inspect.iscoroutinefunction(function):
             raise TypeError(f"tool {name} must be an async function")
+        if credentials and "credentials" not in inspect.signature(function).parameters:
+            raise TypeError(f"tool {name} names credentials but has no 'credentials' parameter")
         hints = {k: v for k, v in inspect.get_annotations(function, eval_str=True).items()}
         fields: dict[str, Any] = {}
         for parameter in inspect.signature(function).parameters.values():
-            if parameter.name == "idempotency_key":
+            if parameter.name in _INJECTED:
                 continue
             default = ... if parameter.default is inspect.Parameter.empty else parameter.default
             fields[parameter.name] = (hints.get(parameter.name, Any), default)
@@ -117,6 +143,8 @@ def tool(
             side_effect=side_effect,
             timeout_s=timeout_s,
             trusted=trusted,
+            credentials=tuple(credentials),
+            reaches=tuple(reaches),
         )
         return NativeTool(spec, function, arguments)
 
@@ -133,7 +161,13 @@ class NativeProvider(ToolProvider):
         return [native.spec for native in self._tools.values()]
 
     async def call(
-        self, name: str, arguments: Mapping[str, JsonValue], *, idempotency_key: str | None
+        self,
+        name: str,
+        arguments: Mapping[str, JsonValue],
+        *,
+        idempotency_key: str | None,
+        credentials: Mapping[str, str] | None = None,
+        egress: Egress | None = None,
     ) -> JsonValue:
         native = self._tools[name]
         try:
@@ -143,6 +177,10 @@ class NativeProvider(ToolProvider):
         kwargs = parsed.model_dump()
         if native.takes_idempotency_key:
             kwargs["idempotency_key"] = idempotency_key
+        if native.takes_credentials:
+            kwargs["credentials"] = dict(credentials or {})
+        if native.takes_egress:
+            kwargs["egress"] = egress
         result = await native.function(**kwargs)
         adapter = TypeAdapter[Any](cast(Any, type(result)))
         return cast(JsonValue, adapter.dump_python(result, mode="json"))
@@ -193,6 +231,12 @@ class MCPProvider(ToolProvider):
         self._client: mcp.Client | None = None
         self._names: dict[str, str] = {}  # AIOS name -> MCP name
 
+    @property
+    def _reaches(self) -> tuple[str, ...]:
+        """A server over HTTP is a destination. What it does next is its own affair."""
+        host = urlsplit(self.server).hostname if isinstance(self.server, str) else None
+        return (host,) if host else ()
+
     async def _connect(self) -> mcp.Client:
         if self._client is None:
             # "auto" negotiates the 2026 protocol and is meant to fall back to the classic
@@ -240,12 +284,19 @@ class MCPProvider(ToolProvider):
                     else None,
                     side_effect=side_effect,
                     timeout_s=self.timeout_s,
+                    reaches=self._reaches,
                 )
             )
         return specs
 
     async def call(
-        self, name: str, arguments: Mapping[str, JsonValue], *, idempotency_key: str | None
+        self,
+        name: str,
+        arguments: Mapping[str, JsonValue],
+        *,
+        idempotency_key: str | None,
+        credentials: Mapping[str, str] | None = None,
+        egress: Egress | None = None,
     ) -> JsonValue:
         client = await self._connect()
         if not self._names:

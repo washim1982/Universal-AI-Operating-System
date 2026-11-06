@@ -1,0 +1,29 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: notes, version: 1.0.0}
+spec:
+  description: Keeps notes in a file. For trying out installation (testing guide, Part 16).
+  entrypoints:
+    - {type: chat, workflow: note}
+    - {type: webhook, name: inbox, workflow: note, secret: HOOK_KEY}
+  agents: [notes-agent]
+  workflows: [note]
+  config: {secrets: [HOOK_KEY]}
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: notes-agent, version: 1.0.0}
+spec:
+  runtime: {type: python, entrypoint: "notes_app.agents:work"}
+  capabilities: [{name: notes.keep}]
+  tools: {allow: [filesystem.file.read, filesystem.file.write]}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: note, version: 1.0.0}
+spec:
+  steps:
+    - id: note
+      type: task
+      capability: notes.keep
+      input: {message: "${input.message}", greeting: "${config.greeting}"}

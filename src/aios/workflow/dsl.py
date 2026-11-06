@@ -85,8 +85,10 @@ class Approval:
     id: str
     approvers: Sequence[str]
     timeout: str | None = None
-    on_timeout: Literal["deny", "approve", "escalate"] = "deny"
+    on_timeout: Literal["deny", "approve"] = "deny"
     needs: Sequence[str] | None = None
+    summary: str | None = None
+    risk: Literal["low", "medium", "high"] = "medium"
 
     def ir(self) -> dict[str, Any]:
         node: dict[str, Any] = {
@@ -94,7 +96,28 @@ class Approval:
             "type": "approval",
             "approvers": list(self.approvers),
             "onTimeout": self.on_timeout,
+            "risk": self.risk,
         }
+        if self.summary is not None:
+            node["summary"] = self.summary
+        if self.timeout is not None:
+            node["timeout"] = self.timeout
+        if self.needs is not None:
+            node["needs"] = list(self.needs)
+        return node
+
+
+@dataclass(frozen=True)
+class Wait:
+    """Waits for a signal sent to the run; its data becomes the step's output (FR-WF-08)."""
+
+    id: str
+    signal: str
+    timeout: str | None = None
+    needs: Sequence[str] | None = None
+
+    def ir(self) -> dict[str, Any]:
+        node: dict[str, Any] = {"id": self.id, "type": "wait", "signal": self.signal}
         if self.timeout is not None:
             node["timeout"] = self.timeout
         if self.needs is not None:
@@ -107,11 +130,11 @@ class Workflow:
     name: str
     version: str = "0.1.0"
     description: str = ""
-    steps: tuple[Step | Approval, ...] = ()
+    steps: tuple[Step | Approval | Wait, ...] = ()
     _budget: Mapping[str, Any] = field(default_factory=dict[str, Any])
     _output: str | None = None
 
-    def then(self, step: Step | Approval) -> Workflow:
+    def then(self, step: Step | Approval | Wait) -> Workflow:
         return replace(self, steps=(*self.steps, step))
 
     def budget(

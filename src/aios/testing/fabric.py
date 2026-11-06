@@ -402,6 +402,27 @@ class EventBusConformance:
         by_pattern = [s async for s in bus.replay(SCOPE, "research.>")]
         assert [s.event.id for s in by_pattern] == [early.id, late.id]
 
+    async def test_latest_reads_newest_first(self, bus: EventBus) -> None:
+        events = [make_event("agent.lifecycle.started", {"n": n}) for n in range(3)]
+        await bus.publish(*events)
+        await bus.publish(make_event("task.requested", {"capability": "x"}))
+        newest = [s.event.id async for s in bus.latest(SCOPE, "agent.>")]
+        assert newest == [event.id for event in reversed(events)]
+
+    async def test_latest_can_stop_early(self, bus: EventBus) -> None:
+        await bus.publish(*(make_event("agent.lifecycle.started", {"n": n}) for n in range(5)))
+        seen = 0
+        async for _ in bus.latest(SCOPE):
+            seen += 1
+            if seen == 2:
+                break
+        assert seen == 2
+
+    async def test_latest_is_scoped(self, bus: EventBus) -> None:
+        await bus.publish(make_event("agent.lifecycle.started", tenantid="acme"))
+        await bus.publish(make_event("agent.lifecycle.started", tenantid="globex"))
+        assert len([s async for s in bus.latest(Scope("globex", DEFAULT_APP))]) == 1
+
     async def test_replay_is_scoped(self, bus: EventBus) -> None:
         await bus.publish(make_event(tenant="acme"), make_event(tenant="globex"))
         assert [s.event.tenantid for s in await _replayed(bus, Scope("globex"))] == ["globex"]

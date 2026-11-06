@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/memory.item.updated/1",
+  "additionalProperties": false,
+  "properties": {
+    "item": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Item",
+      "type": "string"
+    },
+    "scope": {
+      "title": "Scope",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "retention": {
+      "title": "Retention",
+      "type": "string"
+    },
+    "sensitivity": {
+      "title": "Sensitivity",
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "site": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Where in its task an agent wrote it, so it is written once.",
+      "title": "Site"
+    },
+    "stubbed": {
+      "default": false,
+      "description": "Not stored: a replay or fork held the write back",
+      "title": "Stubbed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "item",
+    "scope",
+    "kind",
+    "retention",
+    "sensitivity"
+  ],
+  "title": "memory.item.updated v1 payload",
+  "type": "object"
+}

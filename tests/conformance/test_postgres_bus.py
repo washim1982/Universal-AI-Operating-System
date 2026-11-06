@@ -6,6 +6,7 @@ each test gets its own schema, dropped afterwards.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 # (asyncpg ships no type hints)
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -35,6 +36,16 @@ class TestPostgresEventBus(EventBusConformance):
             yield bus
         finally:
             await bus.close()
+
+
+async def test_processes_can_start_together_on_a_new_database() -> None:
+    """An API and workers starting at once must not race to create the schema."""
+    assert DSN is not None
+    schema = f"t_{new_ulid().lower()}"
+    buses = [PostgresEventBus(DSN, schema=schema, drop_on_close=i == 3) for i in range(4)]
+    await asyncio.gather(*(bus.connect() for bus in buses))
+    for bus in buses:
+        await bus.close()
 
 
 async def _publish_then_fail(bus: PostgresEventBus, connection: Any) -> None:

@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Researcher</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #16191f;
+  --muted: #5b6472;
+  --line: #dfe3e9;
+  --accent: #2450c8;
+  --accent-soft: #e8eefc;
+  --good: #137a56;
+  --good-soft: #e3f4ec;
+  --warn: #8a5a00;
+  --warn-soft: #fbf1da;
+  --bad: #b3261e;
+  --bad-soft: #fbe9e7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418;
+    --panel: #191d23;
+    --ink: #e9ecf1;
+    --muted: #9aa4b2;
+    --line: #2d333c;
+    --accent: #8fb0ff;
+    --accent-soft: #1f2a44;
+    --good: #5fd0a3;
+    --good-soft: #15302a;
+    --warn: #e9bb62;
+    --warn-soft: #362a12;
+    --bad: #ff9b92;
+    --bad-soft: #3b1d1b;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.page { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+.mode { color: var(--muted); font-size: 14px; }
+.mode.recorded { color: var(--warn); }
+
+form { display: flex; gap: 8px; margin: 16px 0 24px; }
+input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+}
+button {
+  padding: 12px 20px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--panel);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.stop { background: transparent; color: var(--accent); }
+button:disabled { opacity: 0.55; cursor: default; }
+input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.panel h2.label { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.notice { margin: 0 0 16px; padding: 12px 14px; border-radius: 8px; overflow-wrap: anywhere; }
+.notice.bad { background: var(--bad-soft); color: var(--bad); }
+.notice.plain { background: var(--accent-soft); }
+
+ol.steps { list-style: none; margin: 0; padding: 0; }
+.step { position: relative; padding: 0 0 18px 28px; }
+.step:last-child { padding-bottom: 0; }
+.step::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 20px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--line);
+}
+.step:last-child::before { display: none; }
+.mark {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+}
+.step.running .mark { border-color: var(--accent); background: var(--accent-soft); animation: pulse 1.4s ease-in-out infinite; }
+.step.done .mark { border-color: var(--good); background: var(--good); }
+.step.rejected .mark { border-color: var(--warn); background: var(--warn); }
+.step.failed .mark { border-color: var(--bad); background: var(--bad); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px var(--accent-soft); } }
+@media (prefers-reduced-motion: reduce) { .step.running .mark { animation: none; } }
+.step-head { display: flex; justify-content: space-between; gap: 8px; }
+.step-name { font-weight: 600; }
+.step.waiting .step-name { color: var(--muted); }
+.time { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.step-detail { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+ul.subs { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; }
+ul.subs li { padding: 4px 0 4px 10px; border-left: 2px solid var(--line); overflow-wrap: anywhere; }
+ul.subs li.active { border-color: var(--accent); }
+ul.subs li.finished { border-color: var(--good); }
+
+.stats { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+
+.empty { color: var(--muted); margin: 0; }
+.verdict { margin: 0 0 20px; padding: 12px 14px; border-radius: 8px; background: var(--accent-soft); overflow-wrap: anywhere; }
+.verdict.good { background: var(--good-soft); color: var(--good); }
+.verdict.warn { background: var(--warn-soft); color: var(--warn); }
+.verdict strong { display: block; }
+.verdict details { margin-top: 4px; font-size: 14px; }
+.report { overflow-wrap: anywhere; }
+.report h2 { margin: 0 0 8px; font-size: 26px; line-height: 1.25; letter-spacing: -0.015em; }
+.report h3 { margin: 24px 0 6px; font-size: 18px; }
+.report p { margin: 0; white-space: pre-line; font-family: Charter, Georgia, "Times New Roman", serif; font-size: 17px; line-height: 1.6; }
+.report p.summary { color: var(--muted); }
+code { padding: 1px 4px; border-radius: 4px; background: var(--bg); font: 0.86em ui-monospace, Consolas, monospace; }
+.refs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.refs a { padding: 0 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 13px; text-decoration: none; font-variant-numeric: tabular-nums; }
+.sources-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; align-items: baseline; margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sources-head h3 { margin: 0; }
+.check { font-size: 14px; color: var(--good); }
+.check.warn { color: var(--warn); }
+ol.sources { margin: 10px 0 0; padding-left: 24px; font-size: 15px; }
+ol.sources li { margin-bottom: 8px; }
+ol.sources li:target { background: var(--accent-soft); border-radius: 4px; }
+.host { display: block; color: var(--muted); font-size: 13px; }
+.unverified { display: block; color: var(--warn); font-size: 13px; }
+a { color: var(--accent); }
+.report p.note { margin-top: 16px; color: var(--muted); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+.finding { padding: 12px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.finding:first-of-type { border-top: 0; padding-top: 0; }
+.finding h3 { margin: 0 0 4px; font-size: 15px; }
+.finding p { margin: 0; color: var(--muted); font-size: 15px; white-space: pre-line; }
+details.notes { margin-top: 20px; }
+details.notes summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details.notes .finding:first-of-type { padding-top: 12px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  form { flex-wrap: wrap; }
+  form input { flex-basis: 100%; }
+  form button { flex: 1; }
+  .report h2 { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>AI Researcher</h1>
+    <span class="mode" id="mode"></span>
+  </header>
+  <form id="ask">
+    <input id="question" aria-label="Your question" autocomplete="off" required
+           value="What changed in the OpenTelemetry GenAI semantic conventions in 2026?">
+    <button id="go" type="submit">Research</button>
+  </form>
+  <div id="problem" role="alert"></div>
+  <div class="layout">
+    <section class="panel" aria-label="Progress">
+      <h2 class="label">Progress</h2>
+      <ol class="steps" id="steps"></ol>
+      <p class="stats" id="stats" hidden></p>
+    </section>
+    <section class="panel" aria-label="Report" id="report"></section>
+  </div>
+</div>
+<script>
+"use strict";
+// Search results and model output are untrusted, so they only ever become text nodes, and a
+// link is only made from an http(s) URL.
+const API = "/v1/apps/ai-researcher";
+const STEPS = [
+  ["plan", "Plan"], ["research", "Research"], ["analyze", "Analyze"], ["draft", "Write"], ["review", "Review"],
+];
+const $ = (id) => document.getElementById(id);
+
+function el(tag, props, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.flat().filter((child) => child !== null && child !== undefined));
+  return node;
+}
+
+function prose(text) {  // models mark identifiers with `backticks` and emphasis with **stars**
+  return String(text).split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/).map((part) => {
+    if (part.startsWith("`") && part.length > 2) return el("code", {}, part.slice(1, -1));
+    if (part.startsWith("**") && part.length > 4) return el("strong", {}, part.slice(2, -2));
+    return part;
+  });
+}
+
+function webUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return ["http:", "https:"].includes(parsed.protocol) ? parsed : null;
+  } catch { return null; }
+}
+
+function link(url, text, props) {
+  const parsed = webUrl(url);
+  if (!parsed) return text;
+  return el("a", { href: parsed.href, target: "_blank", rel: "noopener noreferrer", ...props }, text);
+}
+
+function duration(ms) {
+  const seconds = Math.max(0, ms) / 1000;
+  if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+// ---------------------------------------------------------------- what the events say
+
+function blank() {
+  const steps = Object.fromEntries(STEPS.map(([id]) => [id, { state: "waiting", spent: 0, since: null }]));
+  return {
+    status: "idle", started: null, ended: null, steps, subs: [], hits: new Map(), searches: 0,
+    calls: 0, model: null, provider: null, drafts: 0, findings: 0, report: null, verdict: null,
+    usage: null, error: null, stopping: false,
+  };
+}
+
+const time = (event) => Date.parse(event.time);
+
+function finishStep(run, id, event, state) {
+  const step = run.steps[id];
+  if (!step) return;
+  if (step.since !== null) step.spent += time(event) - step.since;
+  step.since = null;
+  step.state = state;
+}
+
+function finish(run, event, status) {
+  run.status = status;
+  run.ended = time(event);
+  run.usage = event.data.usage ?? run.usage;
+  run.report = event.data.output ?? run.report;
+  run.error = event.data.error ?? null;
+  for (const [id, step] of Object.entries(run.steps)) {
+    if (step.state === "running") finishStep(run, id, event, status === "failed" ? "failed" : "waiting");
+  }
+}
+
+const HANDLERS = {
+  "app.request.received"(run, event) {
+    $("question").value = event.data.input?.message ?? $("question").value;
+  },
+  "run.started"(run, event) {
+    run.status = "running";
+    run.started = time(event);
+  },
+  "step.started"(run, event) {
+    const step = run.steps[event.data.step];
+    if (!step) return;
+    step.state = "running";
+    step.since = time(event);
+    if (event.data.step === "draft") {
+      run.drafts += 1;
+      run.steps.review.state = "waiting";
+    }
+  },
+  "step.completed"(run, event) {
+    const { step, output } = event.data;
+    if (step === "review") {
+      run.verdict = { result: output.result, notes: output.notes, draft: run.drafts };
+      finishStep(run, step, event, output.result === "approve" ? "done" : "rejected");
+      return;
+    }
+    finishStep(run, step, event, "done");
+    if (step === "plan") run.subs = output.tasks.map(({ question }) => ({ question, state: "queued" }));
+    if (step === "analyze") run.findings = output.findings.length;
+    if (step === "draft") { run.report = output; run.verdict = null; }
+  },
+  "step.failed"(run, event) { finishStep(run, event.data.step, event, "failed"); },
+  "tool.call.requested"(run, event) {
+    const sub = run.subs.find(({ question }) => question === event.data.arguments?.q);
+    if (sub) sub.state = "searching";
+  },
+  "tool.call.completed"(run, event) {
+    run.searches += 1;
+    for (const hit of Array.isArray(event.data.output) ? event.data.output : []) {
+      if (hit?.url) run.hits.set(hit.url, hit.title || hit.url);
+    }
+  },
+  "research.findings.recorded"(run, event) {
+    const { question, summary, sources } = event.data;
+    const sub = run.subs.find((candidate) => candidate.question === question)
+      ?? run.subs.find(({ state }) => state === "searching");
+    if (!sub) return;
+    Object.assign(sub, { state: "finished", summary, sources });
+  },
+  "model.call.completed"(run, event) {
+    run.calls += 1;
+    run.model = event.data.model;
+    run.provider = event.data.provider;
+  },
+  "run.completed"(run, event) { finish(run, event, "completed"); },
+  "run.failed"(run, event) { finish(run, event, "failed"); },
+  "run.cancelled"(run, event) { finish(run, event, "cancelled"); },
+};
+const TERMINAL = ["run.completed", "run.failed", "run.cancelled"];
+
+// ---------------------------------------------------------------- what the page shows
+
+function stepDetail(run, id) {
+  const step = run.steps[id];
+  if (id === "plan" && run.subs.length) return plural(run.subs.length, "sub-question");
+  if (id === "research" && run.subs.length) {
+    const finished = run.subs.filter(({ state }) => state === "finished").length;
+    return `${finished} of ${run.subs.length} answered, ${plural(run.hits.size, "page")} found`;
+  }
+  if (id === "analyze" && step.state === "done") return plural(run.findings, "finding");
+  if (id === "draft" && run.drafts) return `Draft ${run.drafts}`;
+  if (id === "review" && run.verdict) return run.verdict.result === "approve" ? "Approved" : "Rejected";
+  return null;
+}
+
+function renderSteps(run) {
+  $("steps").replaceChildren(...STEPS.map(([id, name]) => {
+    const step = run.steps[id];
+    const spent = el("span", { className: "time" }, step.spent || step.since ? duration(step.spent) : null);
+    if (step.since !== null) spent.dataset.from = step.since - step.spent;
+    const detail = stepDetail(run, id);
+    const subs = id === "research" && run.subs.length
+      ? el("ul", { className: "subs" }, run.subs.map(({ question, state }) => el("li", {
+          className: { searching: "active", finished: "finished" }[state] ?? "",
+        }, question)))
+      : null;
+    return el("li", { className: `step ${step.state}` },
+      el("span", { className: "mark" }),
+      el("div", { className: "step-head" }, el("span", { className: "step-name" }, name), spent),
+      detail ? el("div", { className: "step-detail" }, detail) : null,
+      subs);
+  }));
+}
+
+function renderStats(run) {
+  const parts = [];
+  if (run.model) parts.push(`${run.model}${run.provider === "private" ? " on your own server" : ""}`);
+  if (run.ended) parts.push(`finished in ${duration(run.ended - run.started)}`);
+  if (run.calls) parts.push(plural(run.calls, "model call"));
+  if (run.searches) parts.push(plural(run.searches, "search").replace("searchs", "searches"));
+  if (run.usage) {
+    const tokens = run.usage.input_tokens + run.usage.output_tokens;
+    parts.push(`${tokens.toLocaleString("en-US")} tokens`, `$${run.usage.cost_usd.toFixed(2)}`);
+  }
+  $("stats").hidden = parts.length === 0;
+  $("stats").textContent = parts.join(" · ");
+}
+
+function verdictOf(run) {
+  const { verdict, drafts, status } = run;
+  if (!verdict) {
+    if (status === "running" && run.steps.review.state === "running") {
+      return el("div", { className: "verdict" }, el("strong", {}, `Draft ${drafts} is being checked against the findings`));
+    }
+    if (status === "running") return el("div", { className: "verdict" }, el("strong", {}, `Draft ${drafts}: not reviewed yet`));
+    return el("div", { className: "verdict warn" }, el("strong", {}, `This draft was never reviewed`));
+  }
+  if (verdict.result === "approve") {
+    const notes = verdict.notes ? el("details", {}, el("summary", {}, "Reviewer's notes"), prose(verdict.notes)) : null;
+    return el("div", { className: "verdict good" }, el("strong", {}, `Reviewer approved draft ${verdict.draft}`), notes);
+  }
+  const title = status === "running"
+    ? `Reviewer rejected draft ${verdict.draft}, so it is being rewritten`
+    : `Reviewer rejected this draft, so read it with care`;
+  return el("div", { className: "verdict warn" }, el("strong", {}, title), prose(verdict.notes));
+}
+
+function researchNotes(run) {
+  return run.subs.filter(({ summary }) => summary).map(({ question, summary, sources }) =>
+    el("div", { className: "finding" }, el("h3", {}, question), el("p", {}, prose(summary)),
+      el("div", { className: "refs" }, sources.map((url) => link(url, webUrl(url)?.hostname.replace(/^www\./, "") ?? url)))));
+}
+
+function renderReportBody(run) {
+  const { report } = run;
+  const numbers = new Map(report.sources.map((url, index) => [url, index + 1]));
+  for (const section of report.sections) {
+    for (const url of section.sources) if (!numbers.has(url)) numbers.set(url, numbers.size + 1);
+  }
+  const unfound = [...numbers.keys()].filter((url) => !run.hits.has(url));
+  const sections = report.sections.flatMap((section) => [
+    el("h3", {}, section.heading),
+    el("p", {}, prose(section.text)),
+    el("div", { className: "refs" }, section.sources.map((url) =>
+      el("a", { href: `#source-${numbers.get(url)}`, title: run.hits.get(url) ?? url }, String(numbers.get(url))))),
+  ]);
+  const sources = [...numbers.keys()].map((url, index) => {
+    const parsed = webUrl(url);
+    return el("li", { id: `source-${index + 1}` },
+      link(url, run.hits.get(url) ?? url),
+      parsed ? el("span", { className: "host" }, parsed.hostname.replace(/^www\./, "")) : null,
+      run.hits.has(url) ? null : el("span", { className: "unverified" }, "Not in the search results"));
+  });
+  const check = unfound.length || !numbers.size
+    ? el("span", { className: "check warn" }, numbers.size ? `${unfound.length} of ${numbers.size} not in the search results` : "No sources")
+    : el("span", { className: "check" }, `All ${numbers.size} came from search results`);
+  return el("article", { className: "report" },
+    el("h2", {}, report.title),
+    el("p", { className: "summary" }, prose(report.summary)),
+    sections,
+    el("div", { className: "sources-head" }, el("h3", {}, "Sources"), check),
+    el("ol", { className: "sources" }, sources),
+    el("p", { className: "note" }, "Sources are checked against what search returned. The claims are a model's reading of them, so check the facts before relying on this."));
+}
+
+function renderReport(run) {
+  const open = $("report").querySelector("details.notes")?.open ?? false;
+  if (run.report) {
+    const notes = researchNotes(run);
+    $("report").replaceChildren(verdictOf(run), renderReportBody(run),
+      notes.length ? el("details", { className: "notes", open }, el("summary", {}, `Research notes (${notes.length})`), notes) : "");
+    return;
+  }
+  const notes = researchNotes(run);
+  const label = el("h2", { className: "label" }, "Report");
+  if (notes.length) {
+    $("report").replaceChildren(el("h2", { className: "label" }, "Found so far"), ...notes);
+  } else if (run.status === "running") {
+    $("report").replaceChildren(label, el("p", { className: "empty" }, "Findings appear here as each sub-question is answered, then the report."));
+  } else if (run.status !== "idle") {
+    $("report").replaceChildren(label, el("p", { className: "empty" }, "The run ended before there was a report."));
+  } else {
+    $("report").replaceChildren(label, el("p", { className: "empty" }, "Ask a question. Agents plan the research, search the web, analyze what they find, write a cited report and review it against the evidence."));
+  }
+}
+
+function render(run) {
+  renderSteps(run);
+  renderStats(run);
+  renderReport(run);
+  if (run.status === "failed") showProblem(`The run failed: ${run.error?.message || "no reason was given"}`);
+  else showProblem(run.status === "cancelled" ? "You stopped this run." : "", "plain");
+  const running = run.status === "running";
+  $("go").textContent = running ? (run.stopping ? "Stopping…" : "Stop") : "Research";
+  $("go").className = running ? "stop" : "";
+  $("go").disabled = run.stopping && running;
+  $("go").type = running ? "button" : "submit";
+  $("question").readOnly = running;
+}
+
+function showProblem(message, tone = "bad") {
+  $("problem").replaceChildren(message ? el("p", { className: `notice ${tone}` }, message) : "");
+}
+
+setInterval(() => {  // the running step's clock
+  for (const node of document.querySelectorAll("[data-from]")) {
+    node.textContent = duration(Date.now() - Number(node.dataset.from));
+  }
+}, 500);
+
+// ---------------------------------------------------------------- talking to the API
+
+let current = { run: blank(), id: null, source: null };
+
+function follow(id) {
+  current.source?.close();
+  const run = blank();
+  run.status = "running";
+  const source = new EventSource(`${API}/runs/${id}/events`);
+  current = { run, id, source };
+  for (const [type, handle] of Object.entries(HANDLERS)) {
+    source.addEventListener(type, (message) => {
+      handle(run, JSON.parse(message.data));
+      if (TERMINAL.includes(type)) source.close();
+      render(run);
+    });
+  }
+  source.onerror = () => {
+    if (source.readyState !== EventSource.CLOSED) showProblem("Lost the connection to the server. Retrying…");
+  };
+  source.onopen = () => showProblem("");
+  render(run);
+}
+
+async function start(message) {
+  const response = await fetch(`${API}/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!response.ok) throw new Error(`the server answered ${response.status}`);
+  const { run_id: id } = await response.json();
+  history.replaceState(null, "", `#${id}`);
+  follow(id);
+}
+
+$("ask").addEventListener("submit", async (submitted) => {
+  submitted.preventDefault();
+  if (current.run.status === "running") return;
+  $("go").disabled = true;
+  try {
+    await start($("question").value.trim());
+  } catch (error) {
+    showProblem(`Could not start the run: ${error.message}`);
+  }
+  $("go").disabled = false;
+});
+
+$("go").addEventListener("click", async () => {
+  const { run, id } = current;
+  if (run.status !== "running") return;
+  run.stopping = true;
+  render(run);
+  try {
+    await fetch(`${API}/runs/${id}/cancel`, { method: "POST" });
+  } catch (error) {
+    run.stopping = false;
+    render(run);
+    showProblem(`Could not stop the run: ${error.message}`);
+  }
+});
+
+async function load() {
+  render(current.run);
+  const health = await fetch("/healthz").then((response) => response.json()).catch(() => null);
+  if (health?.answers === "recorded") {
+    $("mode").textContent = "Replaying a synthetic recording, not live answers";
+    $("mode").className = "mode recorded";
+  } else if (health) {
+    $("mode").textContent = "Live web search and model";
+  }
+  const id = location.hash.slice(1);
+  if (!id) return;
+  const known = await fetch(`${API}/runs/${id}`).catch(() => null);
+  if (known?.ok) follow(id);
+  else history.replaceState(null, "", location.pathname);
+}
+
+load();
+</script>
+</body>
+</html>

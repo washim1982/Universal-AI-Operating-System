@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/security.injection.suspected/1",
+  "additionalProperties": false,
+  "description": "Never quotes the content: the log is permanent, and this may be someone's data.",
+  "properties": {
+    "source": {
+      "description": "Where the content came from, e.g. tool:web.page.read.",
+      "title": "Source",
+      "type": "string"
+    },
+    "classifier": {
+      "title": "Classifier",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Score",
+      "type": "number"
+    },
+    "rules": {
+      "description": "What it noticed.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Rules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source",
+    "classifier",
+    "score"
+  ],
+  "title": "security.injection.suspected v1 payload",
+  "type": "object"
+}

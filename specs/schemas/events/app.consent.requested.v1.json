@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/app.consent.requested/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "What an App asks for, so that the record shows what somebody agreed to (FR-APP-03).",
+  "properties": {
+    "app": {
+      "title": "App",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "requested": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Requested",
+      "type": "object"
+    }
+  },
+  "required": [
+    "app",
+    "version",
+    "requested"
+  ],
+  "title": "app.consent.requested v1 payload",
+  "type": "object"
+}

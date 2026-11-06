@@ -25,6 +25,7 @@ extension attributes (ADR-002). Machine-readable schema:
 | `principal` | yes | Who acted: `<kind>:<name>[@<tenant>]`, kind ∈ `user`, `agent`, `app`, `service`, `system`. |
 | `onbehalfof` | no | For whom (delegation, FR-SEC-05). Same format. |
 | `dataclass` | yes | `public` < `internal` < `confidential` < `restricted`. Default `internal`. Derived events never get a lower label (FR-SEC-11). |
+| `tainted` | yes | `true` once untrusted content has reached whoever acted. Default `false`. Derived events keep it, and nothing clears it (FR-SEC-09, ADR-017). |
 | `traceparent` | no | W3C Trace Context, version `00` (CloudEvents distributed-tracing extension). |
 | `idempotencykey` | no | 1–255 characters; for commands that cause side effects (NFR-06). |
 | `data` | no | Any JSON value. Catalog events have a payload schema. |
@@ -37,9 +38,10 @@ CloudEvents requires.
 `Event.derive(type, data, source=…, principal=…)` creates the next event in a causal chain. The
 child copies `tenantid`, `appid`, `runid`, `correlationid`, `onbehalfof`, `traceparent` and
 `subject` (unless a new `subject` is passed); sets
-`causationid` to the parent's id; increments `hopcount`; and takes the stricter `dataclass` of
-the parent and the one requested. Classification is only ever raised by derivation; lowering it
-is a governed policy action (Phase 2).
+`causationid` to the parent's id; increments `hopcount`; takes the stricter `dataclass` of the
+parent and the one requested; and is `tainted` if either says so. Derivation only ever raises
+these two. Nothing in the platform lowers them: run state folds both from the whole log, so a
+fan-out's join can't lose them either.
 
 ## Example
 

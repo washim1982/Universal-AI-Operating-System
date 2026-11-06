@@ -9,7 +9,10 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=2.3,<3",          # Model Kernel adapters over official SDKs (ADR-008)
     "asyncpg>=0.32",              # PostgreSQL event fabric (ADR-004)
+    "cedarpy>=4.12,<5",           # the Cedar policy engine (ADR-007)
+    "cryptography>=45",           # the encrypted local secret store (FR-SEC-07), JWT signatures
     "fastapi>=0.162",             # API (WP 1.7)
+    "google-genai>=2.34,<3",      # Model Kernel adapter for Gemini (WP 2.5)
     "httpx2>=2.16",               # the HTTP stack of the anthropic, openai and mcp SDKs
     "jsonschema>=4.26",           # tool input/output schemas (FR-TOOL-01)
     "mcp>=2.3,<3",                # MCP client (FR-INT-01)
@@ -19,14 +22,12 @@ dependencies = [
     "opentelemetry-sdk>=1.45",
     "prometheus-client>=0.26",
     "pydantic>=2.11,<3",
+    "pyjwt>=2.10",                # OIDC bearer tokens (ADR-011)
     "pyyaml>=6.0.2",
     "uvicorn>=0.54",
 ]
 
 [project.optional-dependencies]
-policy = [  # the Cedar policy engine (ADR-007), used by aios.security
-    "cedarpy>=4.12,<5",
-]
 testing = [  # for third-party adapters running the conformance suites in aios.testing
     "pytest>=8.4",
     "pytest-asyncio>=1.0",
@@ -38,7 +39,7 @@ aios = "aios.cli.main:main"
 [dependency-groups]
 dev = [
     "ai-researcher",
-    "aios[policy]",
+    "ai-support-desk",
     "hypothesis>=6.130",
     "import-linter>=2.3",
     "pre-commit>=4.2",
@@ -63,10 +64,11 @@ default-groups = ["dev"]
 
 # Reference apps with code are workspace members (ADR-001); the Support Desk joins in WP 2.7.
 [tool.uv.workspace]
-members = ["apps/ai-researcher"]
+members = ["apps/ai-researcher", "apps/ai-support-desk"]
 
 [tool.uv.sources]
 ai-researcher = { workspace = true }
+ai-support-desk = { workspace = true }
 
 # ---------------------------------------------------------------- ruff
 
@@ -132,6 +134,7 @@ timeout = 30
 xfail_strict = true
 markers = [
     "acceptance: reference-app acceptance tests (expected to fail until their work package lands)",
+    "redteam: injection cases that assume the model is fooled every time (WP 2.3)",
 ]
 
 [tool.coverage.run]

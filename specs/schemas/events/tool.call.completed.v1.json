@@ -36,6 +36,18 @@
       "default": true,
       "title": "Untrusted",
       "type": "boolean"
+    },
+    "stubbed": {
+      "default": false,
+      "description": "Not run: a replay or fork held the side effect back",
+      "title": "Stubbed",
+      "type": "boolean"
+    },
+    "replayed": {
+      "default": false,
+      "description": "Answered from a recorded run",
+      "title": "Replayed",
+      "type": "boolean"
     }
   },
   "required": [

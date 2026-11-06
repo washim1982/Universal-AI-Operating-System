@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/security.suspended/1",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "agent",
+        "app",
+        "tenant"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "name"
+  ],
+  "title": "security.suspended v1 payload",
+  "type": "object"
+}

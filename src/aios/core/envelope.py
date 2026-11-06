@@ -96,6 +96,9 @@ class Event(BaseModel):
     dataclass: DataClass = Field(
         default=DataClass.INTERNAL, description="Classification (FR-SEC-11)."
     )
+    tainted: bool = Field(
+        default=False, description="Untrusted content reached whoever acted (FR-SEC-09)."
+    )
     traceparent: TraceParent | None = None
     idempotencykey: str | None = Field(default=None, min_length=1, max_length=255)
 
@@ -118,6 +121,7 @@ class Event(BaseModel):
         source: str,
         principal: str,
         dataclass: DataClass = DataClass.PUBLIC,
+        tainted: bool = False,
         subject: str | None = None,
         idempotencykey: str | None = None,
     ) -> Self:
@@ -126,7 +130,7 @@ class Event(BaseModel):
         The child keeps the tenant, app, run, correlation, delegation and trace context and the
         subject (unless ``subject`` is given), points ``causationid`` at this event and
         increments ``hopcount``. Its data class is the stricter of this event's and
-        ``dataclass``: classification only propagates upwards.
+        ``dataclass``, and it is tainted if either says so: both only ever go one way.
         """
         fields: dict[str, Any] = {
             "source": source,
@@ -141,6 +145,7 @@ class Event(BaseModel):
             "principal": principal,
             "onbehalfof": self.onbehalfof,
             "dataclass": DataClass.strictest(self.dataclass, dataclass),
+            "tainted": self.tainted or tainted,
             "traceparent": self.traceparent,
             "idempotencykey": idempotencykey,
             "data": data,

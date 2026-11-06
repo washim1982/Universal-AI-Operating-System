@@ -64,10 +64,32 @@
           "default": "deny",
           "enum": [
             "deny",
-            "approve",
-            "escalate"
+            "approve"
           ],
           "title": "Ontimeout",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the approver is asked, in a line",
+          "title": "Summary"
+        },
+        "risk": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk",
           "type": "string"
         }
       },
@@ -339,6 +361,70 @@
       "title": "ToolStep",
       "type": "object"
     },
+    "WaitStep": {
+      "additionalProperties": false,
+      "description": "Waits for a signal sent to the run (FR-WF-02); its data becomes the step's output.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "needs": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Steps that must finish first; defaults to the previous step",
+          "title": "Needs"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        },
+        "maxAttempts": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Maxattempts",
+          "type": "integer"
+        },
+        "type": {
+          "const": "wait",
+          "title": "Type",
+          "type": "string"
+        },
+        "signal": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "signal"
+      ],
+      "title": "WaitStep",
+      "type": "object"
+    },
     "WorkflowBudget": {
       "additionalProperties": false,
       "properties": {
@@ -400,7 +486,8 @@
                 "approval": "#/$defs/ApprovalStep",
                 "dynamic": "#/$defs/DynamicStep",
                 "task": "#/$defs/TaskStep",
-                "tool": "#/$defs/ToolStep"
+                "tool": "#/$defs/ToolStep",
+                "wait": "#/$defs/WaitStep"
               },
               "propertyName": "type"
             },
@@ -416,6 +503,9 @@
               },
               {
                 "$ref": "#/$defs/ToolStep"
+              },
+              {
+                "$ref": "#/$defs/WaitStep"
               }
             ]
           },

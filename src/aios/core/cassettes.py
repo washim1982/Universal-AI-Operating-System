@@ -81,6 +81,9 @@ class Cassette:
     def recording(self) -> bool:
         return self.mode == "record"
 
+    def has(self, site: str) -> bool:
+        return site in self._interactions
+
     def play(self, site: str, kind: Literal["model", "tool"], hashed: str | None) -> dict[str, Any]:
         interaction = self._interactions.get(site)
         if interaction is None or interaction.kind != kind:

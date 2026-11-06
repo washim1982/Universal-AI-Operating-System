@@ -1,13 +1,13 @@
 # Reference app: AI Support Desk
 
 **Proves (M2 "Safe by Default", the MVP):** memory, write tools, approvals, injection defenses
-and multi-tenancy. Built in WP 2.7; specified here in Phase 0 (WP 0.5).
+and multi-tenancy. Built in WP 2.7.
 
 Manifests: [manifests/](manifests/). Config schema: [config.schema.json](config.schema.json).
-Draft policy: [policies/support-desk-policy.yaml](policies/support-desk-policy.yaml) (format
-from requirements §7.9; validated once WP 2.2 compiles policies). Acceptance tests:
-[tests/e2e/test_ai_support_desk.py](../../tests/e2e/test_ai_support_desk.py), marked
-expected-to-fail until their work packages land.
+Policy: [policies/support-desk-policy.yaml](policies/support-desk-policy.yaml). Agents:
+[src/ai_support_desk/agents.py](src/ai_support_desk/agents.py). Acceptance tests:
+[tests/e2e/test_ai_support_desk.py](../../tests/e2e/test_ai_support_desk.py). To try it, see
+[Part 5 of the testing guide](../../docs/testing-guide.md#part-5-ai-support-desk).
 
 ## Shape
 
@@ -19,8 +19,31 @@ triage (support.triage) → research (support.kb.search) → resolve (support.re
 
 `refund-agent` provides `support.resolve` and may call `stripe.refund.create`. The approval gate
 is not a workflow step: the policy requires approval for refunds above the App's configured
-threshold, and for any `financial` tool while the run context is tainted by untrusted content
-(WP 2.3). Conditional routing (`when:` on steps) arrives with WP 1.3.
+threshold, and AIOS requires it for any `financial` tool once a run is tainted by untrusted content
+(ADR-017).
+
+## Three decisions worth knowing
+
+**A refund request doesn't read the knowledge base.** Reading taints the run, and a tainted run needs
+a person for a refund, so if every ticket read the knowledge base first, a $20 refund would need a
+lead. So `kb-agent` reads only for questions. A poisoned article can reach only a run that read it,
+and that run asks a person, whatever the amount.
+
+**A reply is exempt from taint** (`spec.taint.exempt`). Otherwise every answer drawn from the
+knowledge base would wait for a person. That accepts a risk: a poisoned article can shape what a
+reply says. It can't move money, and `reply-agent` has no other tool. A deployment that wants a
+person on replies removes the exemption.
+
+**A ticket from Zendesk stays tainted.** Nobody signed in to send it, so any refund it asks for goes
+to a person, however small. A signed-in customer's own chat doesn't. The threshold in S3 applies
+to them.
+
+## Stripe and Zendesk
+
+[src/ai_support_desk/tools.py](src/ai_support_desk/tools.py) has stand-ins. No money moves: a refund
+is a line in `.aios/support-desk/refunds.jsonl`. Set
+`AIOS_TOOL_PROVIDERS=ai_support_desk.tools:providers` on the worker to use them, or point it at your
+own providers.
 
 ## User stories
 

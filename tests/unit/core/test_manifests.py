@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from aios.core.manifests import (
     AgentManifest,
     AppManifest,
+    ApprovalStep,
     WorkflowManifest,
     format_duration,
     load_manifests,
@@ -227,3 +228,27 @@ def test_multi_document_yaml() -> None:
 )
 def test_duration_formatting(value: timedelta, text: str) -> None:
     assert format_duration(value) == text
+
+
+def _approval_step(**fields: Any) -> dict[str, Any]:
+    step = {"id": "a", "type": "approval", "approvers": ["role:lead"], **fields}
+    return {
+        "apiVersion": "aios/v1alpha1",
+        "kind": "Workflow",
+        "metadata": {"name": "w", "version": "1.0.0"},
+        "spec": {"steps": [step]},
+    }
+
+
+def test_an_approval_step_can_say_what_it_asks() -> None:
+    manifest = parse_manifest(_approval_step(summary="Send it?", risk="low"))
+    assert isinstance(manifest, WorkflowManifest)
+    step = manifest.spec.steps[0]
+    assert isinstance(step, ApprovalStep)
+    assert (step.summary, step.risk, step.on_timeout) == ("Send it?", "low", "deny")
+
+
+def test_escalation_isnt_offered_until_it_exists() -> None:
+    """Better an error at install than a timeout that quietly does something else (WP 3.5)."""
+    with pytest.raises(ValidationError):
+        parse_manifest(_approval_step(onTimeout="escalate"))

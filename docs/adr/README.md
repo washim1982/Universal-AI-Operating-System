@@ -20,8 +20,14 @@ accepted by the project owner on 29 Oct 2026 (WP 0.4), after the ADR-004 and ADR
 | [008](ADR-008-model-adapters.md) | Model adapters: own interface over provider SDKs, LiteLLM optional | Accepted | Phase 0 |
 | [009](ADR-009-memory-backend.md) | Memory: pgvector by default; embedding model chosen by eval | Accepted | Phase 0 |
 | [010](ADR-010-token-streaming.md) | Token streams outside the fabric (SSE / WebSocket) | Accepted | Phase 0 |
-| 011 | Identity: OIDC provider and agent identity format | Not drafted | End of Phase 1 |
+| [011](ADR-011-identity.md) | Identity: OIDC for people, API keys for services, named workloads for agents | Proposed (implemented; awaiting the owner's review) | End of Phase 1 |
 | [012](ADR-012-license.md) | License: **Apache-2.0 core, commercial enterprise edition** | Accepted (implemented) | Phase 0 |
 | 013 | NATS topology; PostgreSQL outbox → JetStream relay | Not drafted | During Phase 3 |
 | 014 | Agent isolation levels and sandbox technology | Not drafted | During Phase 3 |
-| 015 | App packaging format (OCI artifact) and registry | Not drafted | During Phase 2 |
+| [015](ADR-015-app-packaging.md) | An App version is one JSON bundle, kept as an OCI artifact in any registry | Proposed (implemented; awaiting the owner's review) | During Phase 2 |
+| [016](ADR-016-approvals.md) | Approvals: a task stops, and runs again once a person answers | Proposed (implemented; awaiting the owner's review) | During Phase 2 |
+| [017](ADR-017-taint.md) | Taint on the envelope; a person's own request doesn't set it | Proposed (implemented; awaiting the owner's review) | During Phase 2 |
+| [018](ADR-018-budgets.md) | Budgets checked before a call, against a ledger paid with the event | Proposed (implemented; awaiting the owner's review) | Tech lead |
+| [019](ADR-019-installation.md) | Installation is desired state in the database, with consent that holds until it is changed | Proposed (implemented; awaiting the owner's review) | Phase 3 |
+| [020](ADR-020-schema-setup.md) | Schema setup runs once per change, under one lock per schema | Proposed (implemented; awaiting the owner's review) | Phase 3 |
+| [021](ADR-021-replay-and-fork.md) | Replay, fork and retry are new runs that answer from their source's record | Proposed (implemented; awaiting the owner's review) | Phase 3 |

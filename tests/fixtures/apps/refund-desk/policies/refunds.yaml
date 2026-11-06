@@ -1,0 +1,10 @@
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: {name: refunds, version: 0.1.0}
+spec:
+  subject: {app: refund-desk}
+  requireApproval:
+    - action: tool.invoke
+      resource: filesystem.file.write
+      approvers: ["role:support-lead"]
+      timeout: ${config.approvalTimeout}

@@ -35,7 +35,7 @@ Agent, App, Workflow, Policy and ModelPolicy resources share the Kubernetes shap
 
 | Field | Rule |
 |---|---|
-| `spec.entrypoints` | At least one: `chat` (`workflow`; the run's input is `{message}`) or `event` (`on`: topic pattern, `workflow`; each matching fact starts one run whose input is the fact's data, and a redelivered fact never starts a second). Schedules, webhooks, OpenAI-compatible and A2A entry points arrive in v1.0 (FR-APP-02). Each workflow must be listed in `spec.workflows`. |
+| `spec.entrypoints` | At least one: `chat` (`workflow`; the run's input is `{message}`); `event` (`on`: topic pattern, `workflow`; each matching fact starts one run whose input is the fact's data, and a redelivered fact never starts a second); `schedule` (`cron`: minute hour day month weekday in UTC, `workflow`, `input`; one run per tick across all workers); or `webhook` (`name`, `workflow`, `secret`: one of `spec.config.secrets`; `POST /v1/hooks/<tenant>/<app>/<name>` with `X-AIOS-Signature`, input untrusted unless `untrusted_input: false`). Webhook names are unique. OpenAI-compatible and A2A entry points arrive later (FR-APP-02) |
 | `spec.agents`, `spec.workflows`, `spec.policies` | Resource names |
 | `spec.tools` | Each item has exactly one of `provider` (e.g. an MCP server) or `name` (one tool) |
 | `spec.memory` | `scopes` and `knowledge` sources (`source` URI, `scope`) |
@@ -46,14 +46,16 @@ Agent, App, Workflow, Policy and ModelPolicy resources share the Kubernetes shap
 ## Workflow (graph IR v0.1, FR-WF-01)
 
 The Python DSL (§7.6) compiles to this. v0.1 covers the node types the first two reference
-apps need; WP 1.3 adds conditions, joins, sub-workflows, waits and compensation (FR-WF-02).
+apps need; WP 1.3 adds conditions, joins, sub-workflows, timer and event waits, and compensation
+(FR-WF-02).
 
 | Step `type` | Fields |
 |---|---|
 | `task` | `capability` (name or pattern), `input` bindings, `onResult` (result value → earlier step id), `maxLoops` |
 | `dynamic` | Planner-driven fan-out (FR-WF-03): `capability`, `fromPlan` (`<earlier step id>.output.<path>`, e.g. `plan.output.tasks`), `maxParallel` |
-| `approval` | `approvers` (`role:`, `user:` or `group:` selectors), `onTimeout`: `deny` (default), `approve`, `escalate` |
+| `approval` | `approvers` (`role:` or `user:` selectors; `group:` is accepted, and matches nobody until WP 3.5), `onTimeout`: `deny` (default) or `approve`, `summary` (what the approver is asked), `risk`: `low`, `medium` (default) or `high`. `timeout` here is how long a person has, 24 hours by default, and it never fails the step: it closes the approval |
 | `tool` | `tool` (three-token tool name), `input` |
+| `wait` | `signal` (DNS label). The run pauses at this step until a signal of that name arrives, even one sent before the step started; the signal's data becomes the step's output (FR-WF-08) |
 
 Every step has `id` (DNS label, unique), `needs` (defaults to the previous step), `timeout` and
 `maxAttempts` (default 3). `needs` may only point to earlier steps, so the forward graph is
@@ -79,12 +81,14 @@ approver (FR-HUM-01) and never allows what no `allow` rule allows.
 |---|---|
 | `spec.subject` | Exactly one of `agent`, `app` (every agent of the App), `role` or `user` |
 | `spec.allow`, `spec.deny` | Rules: `action` plus a target and an optional `when` |
-| `spec.requireApproval` | Rules with `approvers` (`role:`, `user:` or `group:` selectors) |
-| `action` | v0.1: `tool.invoke`, `memory.read`, `memory.write` (WP 2.2 adds the other enforcement points) |
+| `spec.requireApproval` | Rules with `approvers` (`role:` or `user:` selectors), and optionally `timeout` (24 hours by default) and `onTimeout`. Silence means no: `onTimeout: approve` lets a call through only if every rule that applies says so, and the shortest `timeout` applies. On anything but `tool.invoke` this is a denial (ADR-016) |
+| `spec.taint.exempt` | Tool names or patterns that need no approval while the run holds untrusted content (FR-SEC-09's "configurable per policy"). Only for `subject: {app: ...}`. The App accepts that risk: a poisoned document can choose what such a tool says. Keep it short (ADR-017) |
+| `action` | `tool.invoke`, `memory.read`, `memory.write`; `task.dispatch`, `model.route`; and the control-plane actions `app.install`, `app.read`, `run.start`, `run.read`, `run.control`, `event.read`, `dlq.manage`, `audit.read`, `key.manage`, `security.suspend`, `metrics.read`, `approval.read`, `approval.decide` |
 | `resource` | `tool.invoke` only: a tool name or pattern (`zendesk.>`, `filesystem.*.delete`); omitted means every tool |
 | `scopes` | `memory.*` only: memory scopes |
 | `when.sideEffect` | The tool's side-effect class is one of `read`, `write`, `destructive`, `external_comm`, `financial`, `code_exec` |
 | `when.contextTainted` | The run's context does (`true`) or does not (`false`) contain untrusted content (FR-SEC-09) |
+| `when.exceptTools` | `tool.invoke` only: tools this rule doesn't apply to |
 | `when.input` | Comparisons against top-level tool-input fields: `{amountUSD: {gt: 100}}`. Numbers support `gt`, `gte`, `lt`, `lte`, `eq` (at most 4 decimal places); strings and booleans `eq` |
 
 All `when` conditions must hold. `${config.<key>}` placeholders are filled from the App
@@ -102,11 +106,13 @@ a deployment fills in.
 
 | Field | Rule |
 |---|---|
-| `spec.rules[]` | `match` (`task`, `dataClass`, `agent`), optional `require.deployment` (`private`), `candidates` in order |
+| `spec.rules[]` | `match` (`task`, `dataClass`, `agent`, `budget: soft`), optional `require.deployment` (`private`), `candidates` in order |
 | `spec.default` | `candidates` when no rule matches |
 | `spec.fallback` | `next-candidate` (default) or `none` |
 | `spec.retries` | `max` (default 2) and `backoff` (`exponential` or `none`) for retryable errors |
-| `spec.budgets` | `perRunUSD`, `perTenantMonthlyUSD`, `onSoftLimit` (enforced from WP 2.6) |
+| `spec.budgets` | Hard limits `perRunUSD`, `perUserMonthlyUSD`, `perAppMonthlyUSD`, `perTenantMonthlyUSD`; `softAt` (default 0.8 of each); `onSoftLimit` (`warn`, `deny`, or `downgrade`) |
 
 The first matching rule decides. Whatever the rules say, `restricted` data only goes to
-`private` deployments (FR-SEC-11).
+`private` deployments (FR-SEC-11). A `budget: soft` rule only matches once a soft limit is reached;
+put it below any rule that must keep winning, and above the rules it should replace. With no such
+rule, a downgrade puts the route's cheapest candidate first (ADR-018).

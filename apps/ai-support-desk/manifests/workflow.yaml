@@ -9,16 +9,27 @@ spec:
     - id: triage
       type: task
       capability: support.triage
+      input: { message: "${input.message}" }
     - id: research
       type: task
       capability: support.kb.search
+      input: { message: "${input.message}", intent: "${triage.output.intent}" }
     - id: resolve
       type: task
       capability: support.resolve     # may call stripe.refund.create; policy gates it
       timeout: 25h                    # long enough to wait for an approval
+      input:
+        message: "${input.message}"
+        triage: "${triage.output}"
+        research: "${research.output}"
     - id: reply
       type: task
       capability: support.reply
+      input:
+        request: "${input}"           # a chat has a message; a Zendesk event also has a ticket
+        resolution: "${resolve.output}"
+        research: "${research.output}"
+        fallback: "${config.fallbackReply}"
   budget:
     maxCostUSD: 0.50
     maxDuration: 48h

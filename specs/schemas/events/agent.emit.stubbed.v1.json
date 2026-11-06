@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/agent.emit.stubbed/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "A fact an agent would have published, in a replay or fork that makes nothing happen.",
+  "properties": {
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "title": "agent.emit.stubbed v1 payload",
+  "type": "object"
+}

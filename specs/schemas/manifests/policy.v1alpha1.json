@@ -59,6 +59,30 @@
           "minItems": 1,
           "title": "Approvers",
           "type": "array"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long a person has to answer",
+          "title": "Timeout"
+        },
+        "onTimeout": {
+          "default": "deny",
+          "description": "Only a rule can let an action go ahead unanswered",
+          "enum": [
+            "deny",
+            "approve"
+          ],
+          "title": "Ontimeout",
+          "type": "string"
         }
       },
       "required": [
@@ -185,6 +209,15 @@
           },
           "title": "Input",
           "type": "object"
+        },
+        "exceptTools": {
+          "description": "Tools this rule doesn't apply to",
+          "items": {
+            "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+            "type": "string"
+          },
+          "title": "Excepttools",
+          "type": "array"
         }
       },
       "title": "Condition",
@@ -219,11 +252,28 @@
       "type": "object"
     },
     "PolicyAction": {
-      "description": "Actions that policies govern in v0.1. WP 2.2 adds publish, subscribe, dispatch and more.",
+      "description": "Actions that policies govern (FR-SEC-04).",
       "enum": [
         "tool.invoke",
         "memory.read",
-        "memory.write"
+        "memory.write",
+        "memory.manage",
+        "approval.read",
+        "approval.decide",
+        "task.dispatch",
+        "model.route",
+        "app.install",
+        "app.manage",
+        "app.read",
+        "run.start",
+        "run.read",
+        "run.control",
+        "event.read",
+        "dlq.manage",
+        "audit.read",
+        "key.manage",
+        "security.suspend",
+        "metrics.read"
       ],
       "title": "PolicyAction",
       "type": "string"
@@ -318,6 +368,9 @@
           },
           "title": "Requireapproval",
           "type": "array"
+        },
+        "taint": {
+          "$ref": "#/$defs/TaintRules"
         }
       },
       "required": [
@@ -398,6 +451,23 @@
       ],
       "title": "SideEffect",
       "type": "string"
+    },
+    "TaintRules": {
+      "additionalProperties": false,
+      "description": "FR-SEC-09's \"configurable per policy\": where an App accepts the risk, and says so.",
+      "properties": {
+        "exempt": {
+          "description": "Risky tools that need no approval while the run holds untrusted content",
+          "items": {
+            "pattern": "^(?:(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*)\\.){0,15}(?:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?|\\*|>)$",
+            "type": "string"
+          },
+          "title": "Exempt",
+          "type": "array"
+        }
+      },
+      "title": "TaintRules",
+      "type": "object"
     }
   },
   "additionalProperties": false,

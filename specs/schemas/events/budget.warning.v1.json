@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/budget.warning/1",
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "enum": [
+        "run",
+        "user",
+        "app",
+        "tenant"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "limit": {
+      "description": "The hard limit, in USD.",
+      "title": "Limit",
+      "type": "number"
+    },
+    "soft_limit": {
+      "title": "Soft Limit",
+      "type": "number"
+    },
+    "observed": {
+      "title": "Observed",
+      "type": "number"
+    },
+    "action": {
+      "description": "What the model policy does from here on.",
+      "enum": [
+        "downgrade",
+        "warn",
+        "deny"
+      ],
+      "title": "Action",
+      "type": "string"
+    }
+  },
+  "required": [
+    "level",
+    "limit",
+    "soft_limit",
+    "observed",
+    "action"
+  ],
+  "title": "budget.warning v1 payload",
+  "type": "object"
+}

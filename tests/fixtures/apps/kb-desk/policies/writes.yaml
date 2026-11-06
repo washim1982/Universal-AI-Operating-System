@@ -1,0 +1,10 @@
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: {name: writes, version: 0.1.0}
+spec:
+  subject: {app: kb-desk}
+  requireApproval:
+    - action: tool.invoke
+      resource: filesystem.file.write
+      when: {contextTainted: true}
+      approvers: ["role:support-lead"]

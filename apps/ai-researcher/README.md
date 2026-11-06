@@ -13,6 +13,15 @@ uv run aios dev --app apps/ai-researcher --cassettes tests/cassettes/ai-research
 uv run aios run ai-researcher "What changed in the OpenTelemetry GenAI semantic conventions in 2026?"
 ```
 
+The cassette returns the same report whatever you ask. For real answers, set
+`ANTHROPIC_API_KEY` and `AIOS_SEARCH_API_KEY` and drop `--cassettes`, or use a local model; see
+the [quick start](../../README.md#quick-start).
+
+[demo.html](demo.html) is a single page for showing a run: `aios dev` serves it at `/demo`. It
+follows the run's events, so a reload picks a run back up, and it flags a draft the reviewer
+rejected and any source that search did not return. It needs nothing but this API, and it is
+not the console (WP 2.6, 3.2).
+
 ## Shape
 
 `research-report` workflow, reproducing the original event chain (requirements §4.1):
@@ -21,6 +30,14 @@ uv run aios run ai-researcher "What changed in the OpenTelemetry GenAI semantic 
 plan (planning) → research ×N (research.web, planner-driven fan-out, ≤ 5 in parallel)
   → analyze (analysis) → draft (writing) → review (review; "reject" loops back to draft, ≤ 2×)
 ```
+
+The engine requests up to 5 research tasks at once, but they execute one at a time for now:
+per-run ordering (ADR-005) delivers tasks of the same run in sequence.
+
+A report can only cite what the search returned: other URLs are removed from each research
+result, from the analysis and from each draft. If that leaves nothing to cite, the run fails
+instead of writing a report. The reviewer judges the draft against the analyst's findings, never
+from memory. If it still rejects the last allowed draft, the run completes with that draft.
 
 Agents: `planner-agent`, `research-agent`, `analyst-agent`, `writer-agent`, `reviewer-agent`.
 Tools: `search.web.query`, `http.page.fetch` (domain allowlist).

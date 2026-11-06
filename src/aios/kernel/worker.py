@@ -3,10 +3,13 @@
 * **Dispatch.** Every capability is a consumer group on ``task.requested.<capability>``, so all
   agents providing a capability compete for its tasks and per-run order holds (ADR-005). A
   claimed task publishes ``task.claimed``, runs the handler with a :class:`Context`, and
-  publishes ``task.completed`` or ``task.failed`` before the delivery is acknowledged.
+  publishes ``task.completed`` or ``task.failed`` before the delivery is acknowledged. A task that
+  needs an approval publishes ``task.suspended`` instead and leaves: nothing holds its place.
 * **Choreography.** An agent's ``subscriptions`` are one consumer group per agent and pattern.
 * **Effectively once.** A redelivered task whose result is already in the log is acknowledged
   without running again, so a crash between publishing the result and the ack repeats nothing.
+* **Leases.** A delivery's lease is renewed while it is handled, so a slow model call is not
+  mistaken for a crash; only a dead worker's tasks are redelivered.
 * **Loops stop.** When an emitted event would pass the hop limit, the kernel publishes
   ``budget.exceeded`` at the triggering event's depth instead (FR-EVT-11).
 * **Lifecycle.** ``agent.lifecycle.*`` events on start and stop; a crashed dispatch loop is
@@ -24,16 +27,38 @@ from typing import Any, Literal
 
 from pydantic import JsonValue, ValidationError
 
-from aios.core.catalog import AgentLifecycle, BudgetExceeded, ErrorInfo, TaskFailed
+from aios.core.catalog import (
+    AgentLifecycle,
+    BudgetExceeded,
+    ErrorInfo,
+    TaskFailed,
+    TaskSuspended,
+)
 from aios.core.envelope import Event
 from aios.core.errors import (
     AIOSError,
+    AwaitingApproval,
     BudgetExceededError,
     BusClosedError,
     HopLimitExceededError,
+    PolicyDeniedError,
 )
 from aios.core.ids import new_ulid
-from aios.core.ports import MemoryGateway, ModelGateway, NoMemory, ToolGateway
+from aios.core.policy import (
+    Actor,
+    AllowAll,
+    PolicyAction,
+    PolicyDecisionPoint,
+    PolicyRequest,
+    Resource,
+)
+from aios.core.ports import (
+    InjectionClassifier,
+    MemoryGateway,
+    ModelGateway,
+    NoMemory,
+    ToolGateway,
+)
 from aios.fabric.port import Delivery, EventBus, Scope, Subscription
 from aios.kernel.context import Context
 from aios.kernel.definitions import AgentDefinition
@@ -41,6 +66,7 @@ from aios.kernel.definitions import AgentDefinition
 logger = logging.getLogger("aios.kernel")
 
 DEFAULT_TIMEOUT_S = 300.0
+TURN_SECONDS = 0.1
 _Kind = Literal["task", "event"]
 
 
@@ -65,6 +91,8 @@ class Worker:
         models: ModelGateway,
         tools: ToolGateway,
         memory: MemoryGateway | None = None,
+        policy: PolicyDecisionPoint | None = None,
+        classifier: InjectionClassifier | None = None,
         installations: Sequence[Installation] = (),
         lease: float = 30.0,
     ) -> None:
@@ -72,6 +100,8 @@ class Worker:
         self.models = models
         self.tools = tools
         self.memory = memory or NoMemory()
+        self.policy = policy or AllowAll()
+        self.classifier = classifier
         self.installations = list(installations)
         self.lease = lease
         self.instance = f"worker-{new_ulid().lower()}"
@@ -85,6 +115,9 @@ class Worker:
         return self._running
 
     # ------------------------------------------------------------------ lifecycle
+
+    def serves(self, tenant: str, app: str) -> bool:
+        return any(i.tenant == tenant and i.app == app for i in self.installations)
 
     async def start(self) -> None:
         if self._running:
@@ -164,6 +197,7 @@ class Worker:
             (subscribed, f"agents.{definition.name}.on{index}", "event")
             for index, subscribed in enumerate(definition.subscriptions)
         ]
+        turn = TURN_SECONDS if len(tasks) + len(facts) > 1 else None
         for pattern, group, kind in [*tasks, *facts]:
             subscription = await self.bus.subscribe(
                 installation.scope, pattern, group=group, ack_wait=self.lease
@@ -173,7 +207,9 @@ class Worker:
                 asyncio.create_task(
                     self._supervised(
                         f"{definition.name}:{pattern}",
-                        lambda s=subscription, k=kind: self._serve(s, definition, concurrency, k),
+                        lambda s=subscription, k=kind: self._serve(
+                            s, definition, concurrency, k, turn
+                        ),
                     )
                 )
             )
@@ -198,17 +234,23 @@ class Worker:
         definition: AgentDefinition,
         concurrency: asyncio.Semaphore,
         kind: _Kind,
+        turn: float | None,
     ) -> None:
+        """Take work when there is a free slot. Waiting for work holds the slot, so that a busy
+        worker leaves deliveries for an idle one. An agent with several subscriptions shares its
+        slots between them, so each waits for one ``turn`` and then lets the next one try."""
         while True:
             await concurrency.acquire()
             try:
-                delivery = await subscription.next()
+                delivery = await subscription.next(turn)
             except BaseException:
                 concurrency.release()
                 raise
             if delivery is None:
                 concurrency.release()
-                return
+                if turn is None or subscription.closed:
+                    return
+                continue
             task = asyncio.create_task(self._handle(delivery, definition, kind))
             self._inflight.add(task)
 
@@ -219,6 +261,7 @@ class Worker:
             task.add_done_callback(done)
 
     async def _handle(self, delivery: Delivery, definition: AgentDefinition, kind: _Kind) -> None:
+        heartbeat = asyncio.create_task(self._keep_leased(delivery))
         try:
             if kind == "task":
                 await self._run_task(delivery, definition)
@@ -230,6 +273,16 @@ class Worker:
             logger.exception("infrastructure error handling %s; will retry", delivery.event.id)
             with contextlib.suppress(Exception):
                 await delivery.nack(reason="kernel error")
+        finally:
+            heartbeat.cancel()
+
+    async def _keep_leased(self, delivery: Delivery) -> None:
+        while True:
+            await asyncio.sleep(self.lease / 3)
+            try:
+                await delivery.extend()
+            except Exception:  # a missed renewal risks a redelivery, which deduplicates
+                logger.warning("could not renew the lease on %s", delivery.event.id)
 
     def _context(self, event: Event, definition: AgentDefinition) -> Context:
         return Context(
@@ -241,6 +294,7 @@ class Worker:
             memory=self.memory,
             instance=self.instance,
             logger=logger,
+            classifier=self.classifier,
         )
 
     async def _run_task(self, delivery: Delivery, definition: AgentDefinition) -> None:
@@ -260,6 +314,7 @@ class Worker:
         timeout = definition.limits.timeout
         seconds = timeout.total_seconds() if timeout is not None else DEFAULT_TIMEOUT_S
         try:
+            await self._authorize(ctx)
             payload = definition.parse_input(data.get("input"))
             async with asyncio.timeout(seconds):
                 result = await definition.handler(ctx, payload)
@@ -269,17 +324,39 @@ class Worker:
                 "output": definition.dump_output(result),
                 "usage": ctx.usage.model_dump(),
             }
+        except AwaitingApproval as waiting:
+            ctx.awaiting = waiting.approval
+            reply_type, reply = "task.suspended", {}
         except Exception as exc:  # the agent failed; the workflow decides what happens next
             reply_type = "task.failed"
             error = await self._failure(event, ctx, exc)
             reply = TaskFailed(capability=capability, error=error).model_dump(mode="json")
+        if ctx.awaiting is not None:  # even if the handler caught it: it hasn't finished its work
+            reply_type = "task.suspended"
+            suspended = TaskSuspended(capability=capability, approval=ctx.awaiting)
+            reply = suspended.model_dump(mode="json")
         await self._reply(event, reply_type, reply, ctx)
         await delivery.ack()
+
+    async def _authorize(self, ctx: Context) -> None:
+        """May this agent work now? The kill switch stops it here (FR-SEC-04, FR-SEC-13)."""
+        decision = await self.policy.decide(
+            PolicyRequest(
+                tenant=ctx.tenant,
+                app=ctx.app,
+                actor=Actor(ctx.principal),
+                action=PolicyAction.TASK_DISPATCH,
+                resource=Resource.tenant(ctx.tenant),
+            )
+        )
+        if not decision.allowed:
+            raise PolicyDeniedError(f"{ctx.agent}: {decision.reason or 'denied by policy'}")
 
     async def _run_subscription(self, delivery: Delivery, definition: AgentDefinition) -> None:
         event = delivery.event
         ctx = self._context(event, definition)
         try:
+            await self._authorize(ctx)
             async with asyncio.timeout(DEFAULT_TIMEOUT_S):
                 await definition.handler(ctx, event)
         except Exception as exc:
@@ -293,7 +370,7 @@ class Worker:
             await self._budget_exceeded(event, "hops", exc.limit, exc.hopcount)
             return ErrorInfo(code=exc.code, message=str(exc))
         if isinstance(exc, BudgetExceededError):
-            await self._budget_exceeded(event, exc.budget, exc.limit, exc.observed)
+            await self._budget_exceeded(event, exc.budget, exc.limit, exc.observed, level=exc.level)
             return ErrorInfo(code=exc.code, message=str(exc))
         if isinstance(exc, TimeoutError):
             return ErrorInfo(
@@ -308,21 +385,34 @@ class Worker:
         return ErrorInfo(code="agent.error", message=f"{type(exc).__name__}: {exc}", retryable=True)
 
     async def _reply(self, event: Event, type: str, data: JsonValue, ctx: Context) -> None:
-        reply = event.derive(type, data, source=ctx.source, principal=ctx.principal)
+        reply = event.derive(
+            type,
+            data,
+            source=ctx.source,
+            principal=ctx.principal,
+            dataclass=ctx.data_class,
+            tainted=ctx.tainted,
+        )
         try:
             await self.bus.publish(reply)
         except HopLimitExceededError as exc:
             await self._budget_exceeded(event, "hops", exc.limit, exc.hopcount)
 
     async def _budget_exceeded(
-        self, trigger: Event, budget: str, limit: float, observed: float
+        self,
+        trigger: Event,
+        budget: str,
+        limit: float,
+        observed: float,
+        *,
+        level: str | None = None,
     ) -> None:
         """Publish ``budget.exceeded`` at the trigger's own depth, so that it always fits."""
         fields = trigger.model_dump(
             exclude={"id", "time", "type", "data", "source", "principal", "idempotencykey"}
         )
         payload = BudgetExceeded.model_validate(
-            {"budget": budget, "limit": limit, "observed": observed}
+            {"budget": budget, "limit": limit, "observed": observed, "level": level}
         )
         notice = Event.model_validate(
             {
@@ -346,6 +436,7 @@ class Worker:
             if settled.causationid == event.id and settled.type in (
                 "task.completed",
                 "task.failed",
+                "task.suspended",
             ):
                 return True
         return False

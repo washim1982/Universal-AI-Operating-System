@@ -56,4 +56,5 @@ adapter passes). Idempotent consumers are implemented by checking the run's log 
 separate inbox table: the kernel skips a task whose `task.completed` / `task.failed` is already
 recorded, the engine skips a trigger whose effects are recorded, and the Model Kernel and Tool
 OS return a call recorded at the same call site instead of making it again (NFR-06). Write
-tools receive an idempotency key derived from `(run, step, attempt, name)`.
+tools receive an idempotency key derived from `(run, step, item, loop, name)`. It left out the
+attempt from WP 2.4 on: a retry after a timeout is exactly when a provider needs to see the same key.

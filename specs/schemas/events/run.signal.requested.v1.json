@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/run.signal.requested/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+      "title": "Name",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "Becomes the wait step's output."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "run.signal.requested v1 payload",
+  "type": "object"
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/run.resumed/1",
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "enum": [
+        "request",
+        "approval",
+        "signal"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Step"
+    },
+    "item": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item"
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "title": "run.resumed v1 payload",
+  "type": "object"
+}

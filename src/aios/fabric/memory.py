@@ -338,6 +338,12 @@ class InMemoryEventBus(EventBus):
             if matches(physical, record.subject):
                 yield record.stored
 
+    async def latest(self, scope: Scope, pattern: str = ">") -> AsyncIterator[StoredEvent]:
+        physical = physical_pattern(scope.tenant, scope.app, pattern)
+        for record in reversed(self._log):
+            if matches(physical, record.subject):
+                yield record.stored
+
     # ------------------------------------------------------------------ dead letters
 
     def _dead_letter(self, group: _Group, entry: _Entry, reason: str) -> None:

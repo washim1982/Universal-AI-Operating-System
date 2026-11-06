@@ -5,12 +5,12 @@ models:
   - id: anthropic/claude-opus-5-5
     model: claude-opus-5-5
     contextWindow: 1000000
-    prices: { input: 4.00, output: 20.00 }
+    prices: { input: 4.00, output: 20.00, cacheRead: 0.20, cacheWrite: 5.00 }
     refusalFallback: true
   - id: anthropic/claude-sonnet-5-5
     model: claude-sonnet-5-5
     contextWindow: 1000000
-    prices: { input: 2.00, output: 10.00 }
+    prices: { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50 }
     refusalFallback: true
   - id: anthropic/claude-haiku-5-5
     model: claude-haiku-5-5
@@ -18,6 +18,8 @@ models:
     prices:
       input: 0.10
       output: 0.50
+      cacheRead: 0.01
+      cacheWrite: 0.125
       longContextThreshold: 100000
       longContextInput: 0.50
       longContextOutput: 2.50
@@ -27,3 +29,7 @@ models:
   - { id: "google/<general-model>", model: "<general-model>", placeholder: true }
   - { id: "private/<open-weights-model>", model: "<open-weights-model>", deployment: private, placeholder: true }
   - { id: "private/<small-model>", model: "<small-model>", deployment: private, placeholder: true }
+
+  # The default embedding models are chosen by an eval in WP 2.1 (ADR-009).
+  - { id: "openai/<embedding-model>", model: "<embedding-model>", placeholder: true }
+  - { id: "private/<embedding-model>", model: "<embedding-model>", deployment: private, placeholder: true }

@@ -1,0 +1,25 @@
+# A small App for trying approvals, with no model and no accounts to set up. The AI Support Desk
+# (WP 2.7) is the real thing. A refund here is a file in the sandbox, so it is easy to count.
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: refund-desk, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: refund}]
+  agents: [refund-agent]
+  workflows: [refund]
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: refund-agent, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "refund_desk.agents:issue"}
+  capabilities: [{name: refunds.issue}]
+  tools: {allow: ["filesystem.file.write"]}
+  limits: {maxSteps: 5, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: refund, version: 0.1.0}
+spec:
+  steps:
+    - {id: issue, type: task, capability: refunds.issue, input: {message: "${input.message}"}}

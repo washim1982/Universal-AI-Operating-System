@@ -14,6 +14,22 @@ class AIOSError(Exception):
     code: ClassVar[str] = "aios.error"
 
 
+class ReplayDivergedError(AIOSError):
+    """A replay made a call its source never made: the agent no longer does what it did."""
+
+    code = "replay.diverged"
+
+
+class RecordedError(AIOSError):
+    """A failure met again in a replay, where the source met it. Its code is the source's."""
+
+    code = "replay.recorded"
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
 class InvalidTopicError(AIOSError, ValueError):
     """A topic, pattern, capability or identifier does not follow the topic grammar."""
 
@@ -67,16 +83,50 @@ class NotFoundError(AIOSError, LookupError):
     code = "not_found"
 
 
+class AuthenticationError(AIOSError):
+    """The credential is missing, invalid, expired or revoked (FR-SEC-02)."""
+
+    code = "auth.invalid_credential"
+
+
+class PolicyDeniedError(AIOSError):
+    """A policy denied a governed action other than a tool call (FR-SEC-04, FR-SEC-13)."""
+
+    code = "policy.denied"
+
+
+class MemoryConflictError(AIOSError):
+    """An update named a version that is no longer the item's current one (FR-MEM-02)."""
+
+    code = "memory.conflict"
+
+
+class ReservedEventError(AIOSError):
+    """Agent code tried to publish an event that only the platform may publish."""
+
+    code = "event.reserved"
+
+
+class ConflictError(AIOSError):
+    """The request doesn't fit the state things are in."""
+
+    code = "conflict"
+
+
 class BudgetExceededError(AIOSError):
-    """A step, token, cost or time budget ran out (FR-AGT-08, FR-WF-08, FR-MOD-07)."""
+    """A step, token, cost or time budget ran out (FR-AGT-08, FR-WF-08, FR-MOD-07, FR-MOD-08)."""
 
     code = "budget.exceeded"
 
-    def __init__(self, budget: str, limit: float, observed: float) -> None:
-        super().__init__(f"{budget} budget exceeded: {observed:g} > {limit:g}")
+    def __init__(
+        self, budget: str, limit: float, observed: float, *, level: str | None = None
+    ) -> None:
+        whose = f"{level} {budget}" if level is not None else budget
+        super().__init__(f"{whose} budget exceeded: {observed:g} > {limit:g}")
         self.budget = budget
         self.limit = limit
         self.observed = observed
+        self.level = level
 
 
 class ModelError(AIOSError):
@@ -109,17 +159,69 @@ class ToolInputError(ToolError):
     code = "tool.invalid_input"
 
 
+class ToolCredentialError(ToolError):
+    """A tool's credential is not set, or this App did not declare it (FR-TOOL-06)."""
+
+    code = "tool.credential_missing"
+
+
 class ToolDeniedError(ToolError):
     """The policy denied the call; the model can't grant itself permissions (FR-SEC-04)."""
 
     code = "policy.denied"
 
 
+class EgressDeniedError(ToolDeniedError):
+    """The call would reach a host that isn't on its allowlist (FR-SEC-10)."""
+
+    code = "egress.denied"
+
+
 class ApprovalRequiredError(ToolError):
-    """The policy requires an approval first. Pausing for it arrives with Human OS (WP 2.4)."""
+    """The policy requires an approval, and nothing here can wait for one.
+
+    A subscription has no run step to pause, and a component without Human OS has nobody to ask.
+    """
 
     code = "approval.required"
 
     def __init__(self, message: str, approvers: tuple[str, ...]) -> None:
         super().__init__(message)
         self.approvers = approvers
+
+
+class ApprovalDeniedError(ToolDeniedError):
+    """A person said no. An agent can catch this and answer some other way (M2 exit 2)."""
+
+    code = "approval.denied"
+
+
+class ApprovalExpiredError(ApprovalDeniedError):
+    """Nobody answered in time, which counts as no (FR-HUM-05)."""
+
+    code = "approval.expired"
+
+
+class ApprovalClosedError(AIOSError):
+    """The approval has already been decided, or has expired or been cancelled."""
+
+    code = "approval.closed"
+
+
+class ApprovalForbiddenError(AIOSError):
+    """This caller isn't one of the approvers, or started the action (FR-HUM-04)."""
+
+    code = "approval.forbidden"
+
+
+class AwaitingApproval(BaseException):
+    """Stops a task until a person decides; the run pauses and nothing waits in memory.
+
+    Not an ``Exception``, for the reason ``asyncio.CancelledError`` isn't one. A handler with
+    ``except Exception`` around a tool call would otherwise carry on as if the call had failed, and
+    could finish the task, or do something else, with the approval still open.
+    """
+
+    def __init__(self, approval: str) -> None:
+        super().__init__(f"waiting for approval {approval}")
+        self.approval = approval

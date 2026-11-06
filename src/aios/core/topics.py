@@ -18,7 +18,7 @@ from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import AfterValidator, WithJsonSchema
+from pydantic import AfterValidator, StringConstraints, WithJsonSchema
 
 from aios.core.errors import InvalidTopicError
 
@@ -46,6 +46,7 @@ RESERVED_DOMAINS = frozenset(
         "approval",
         "human",
         "policy",
+        "security",
         "budget",
         "system",
     }
@@ -176,3 +177,6 @@ CapabilityPattern = Annotated[
     str, AfterValidator(lambda v: validate_pattern(v, "capability")), _schema(PATTERN_REGEX)
 ]
 """A capability name or pattern such as ``research.*``."""
+
+SignalName = Annotated[str, StringConstraints(pattern=rf"^{DNS_LABEL_PATTERN}$")]
+"""The name a wait step listens for, such as ``customer-reply``."""

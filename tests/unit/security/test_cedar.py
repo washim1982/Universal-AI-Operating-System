@@ -170,13 +170,13 @@ def test_refunds_above_the_threshold_need_the_configured_approver(desk: CedarDec
     assert _refund(desk, 120.5, approved=True).effect is Effect.ALLOW
 
 
-def test_tainted_context_escalates_financial_and_external_tools(desk: CedarDecisionPoint) -> None:
+def test_tainted_context_sends_a_refund_to_whoever_handles_refunds(
+    desk: CedarDecisionPoint,
+) -> None:
     # The poisoned-article scenario (story S4): a small refund is still escalated.
-    assert _refund(desk, 20, tainted=True).effect is Effect.REQUIRE_APPROVAL
-    reply = {"agent": "reply-agent", "app": "ai-support-desk"}
-    assert _tool(desk, "zendesk.ticket.reply", SideEffect.EXTERNAL_COMM, **reply).allowed
-    tainted = _tool(desk, "zendesk.ticket.reply", SideEffect.EXTERNAL_COMM, tainted=True, **reply)
-    assert tainted.effect is Effect.REQUIRE_APPROVAL
+    decision = _refund(desk, 20, tainted=True)
+    assert decision.effect is Effect.REQUIRE_APPROVAL
+    assert decision.approvers == ("role:support-lead",)
 
 
 def test_app_subjects_cover_every_agent_of_the_app(desk: CedarDecisionPoint) -> None:

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/memory.recalled/1",
+  "additionalProperties": false,
+  "properties": {
+    "operation": {
+      "enum": [
+        "recall",
+        "search",
+        "get"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "scopes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Scopes",
+      "type": "array"
+    },
+    "items": {
+      "description": "The items the caller received.",
+      "items": {
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+        "type": "string"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "mode": {
+      "default": "keyword",
+      "title": "Mode",
+      "type": "string"
+    },
+    "policies": {
+      "description": "The rules that allowed it.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Policies",
+      "type": "array"
+    }
+  },
+  "required": [
+    "operation",
+    "scopes",
+    "items"
+  ],
+  "title": "memory.recalled v1 payload",
+  "type": "object"
+}

@@ -29,6 +29,8 @@ class Prices(_Model):
 
     input: float = Field(ge=0)
     output: float = Field(ge=0)
+    cache_read: float | None = Field(default=None, ge=0, alias="cacheRead")
+    cache_write: float | None = Field(default=None, ge=0, alias="cacheWrite")
     long_context_threshold: int | None = Field(
         default=None, ge=1, alias="longContextThreshold", description="Prompt tokens"
     )
@@ -39,7 +41,7 @@ class Prices(_Model):
 class ModelEntry(_Model):
     id: str = Field(description="<provider>/<name>, as policies name it")
     model: str = Field(description="The provider's model id")
-    deployment: Literal["public", "private"] = "public"
+    deployment: Literal["public", "zero-retention", "private"] = "public"
     context_window: int | None = Field(default=None, ge=1, alias="contextWindow")
     prices: Prices | None = None
     placeholder: bool = False
@@ -53,7 +55,10 @@ class ModelEntry(_Model):
     def provider(self) -> str:
         return self.id.split("/", 1)[0]
 
-    def cost(self, input_tokens: int, output_tokens: int) -> float:
+    def cost(
+        self, input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0
+    ) -> float:
+        """``input_tokens`` is the whole prompt; the two cache counts are parts of it."""
         prices = self.prices
         if prices is None:
             return 0.0
@@ -62,13 +67,25 @@ class ModelEntry(_Model):
         if threshold is not None and input_tokens > threshold:
             input_price = prices.long_context_input or input_price
             output_price = prices.long_context_output or output_price
-        return (input_tokens * input_price + output_tokens * output_price) / 1_000_000
+        read_price = input_price if prices.cache_read is None else prices.cache_read
+        write_price = input_price if prices.cache_write is None else prices.cache_write
+        plain = max(input_tokens - cache_read - cache_write, 0)
+        return (
+            plain * input_price
+            + cache_read * read_price
+            + cache_write * write_price
+            + output_tokens * output_price
+        ) / 1_000_000
 
-    def usage(self, input_tokens: int, output_tokens: int) -> Usage:
+    def usage(
+        self, input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0
+    ) -> Usage:
         return Usage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost_usd=round(self.cost(input_tokens, output_tokens), 8),
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+            cost_usd=round(self.cost(input_tokens, output_tokens, cache_read, cache_write), 8),
         )
 
 

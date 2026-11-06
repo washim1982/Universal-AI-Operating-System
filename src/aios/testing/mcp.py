@@ -73,7 +73,11 @@ async def fake_mcp_server(
 
         register(name)
     config = uvicorn.Config(
-        server.streamable_http_app(), host="127.0.0.1", port=port, log_level="warning"
+        server.streamable_http_app(),
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        timeout_graceful_shutdown=1,  # see SHUTDOWN_SECONDS in aios.cli.server
     )
     web = uvicorn.Server(config)
     task = asyncio.create_task(web.serve())

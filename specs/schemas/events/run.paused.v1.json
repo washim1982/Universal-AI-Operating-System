@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/run.paused/1",
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "description": "What the run waits for. Only a requested pause holds all of its new work.",
+      "enum": [
+        "request",
+        "approval",
+        "signal"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The waiting step, unless requested.",
+      "title": "Step"
+    },
+    "item": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The waiting fan-out item, if any.",
+      "title": "Item"
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "title": "run.paused v1 payload",
+  "type": "object"
+}

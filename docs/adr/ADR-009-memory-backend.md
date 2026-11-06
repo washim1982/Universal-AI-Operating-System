@@ -37,5 +37,29 @@ complete erasure (GDPR `forget`). The MVP should run on a laptop with one databa
 
 ## Implementation
 
-WP 2.1: `src/aios/memory/` with the pgvector adapter; the compose stack already uses the
-`pgvector/pgvector:pg17` image.
+`src/aios/memory/`: `store.py` (the port and the in-memory adapter), `postgres.py` (pgvector),
+`rank.py` (hybrid ranking, context packs, chunking) and `service.py` (policy, embeddings,
+ingestion). `src/aios/testing/memory.py` is the conformance suite both adapters pass, and Qdrant
+will run it in Phase 4.
+
+Decisions made while building it, within this ADR:
+
+- **Ranking lives above the store,** so every backend ranks alike. Reciprocal rank fusion combines
+  keyword and vector positions, because their scores aren't comparable. Recency and importance
+  only reorder near neighbours: at higher weights a good old match sank below fresher, weaker ones.
+- **Vector search has a similarity floor** (cosine 0.25), because it always has a nearest neighbour
+  however unrelated. Offering one would spend the budget and taint the agent for nothing. The value
+  is a first estimate for the eval below to calibrate.
+- **Embeddings are optional.** Without a usable model, items are stored and found by keyword, and
+  search says so. Vectors can be added later. `restricted` text is only embedded by a private
+  deployment, so it may be keyword-only.
+- **One HNSW index per vector size,** created when that size is first stored, because the model is
+  configuration and a column can't index mixed sizes. Sizes above 2,000 are searched exactly.
+- **Ephemeral items stay in the process,** as requirements §5.5 says. A second worker can't see them.
+- **Events never quote content or queries.** The log is append-only, so anything in it couldn't be
+  forgotten.
+
+**Still open:** the default embedding model. This ADR calls for an eval on the reference-app
+corpora, which needs real models to compare, and no real embedding model has been called yet. The
+`embedding` task still routes to placeholder entries in the default registry, so a default install
+searches by keyword until an operator sets `AIOS_PRIVATE_EMBEDDING_MODEL` or fills them in.

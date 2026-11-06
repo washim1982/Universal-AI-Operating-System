@@ -5,9 +5,13 @@ kind: ModelPolicy
 metadata: { name: default, version: 1.0.0 }
 spec:
   rules:
+    - match: { task: embedding }              # restricted text still only reaches private models
+      candidates: [openai/<embedding-model>, private/<embedding-model>]
     - match: { dataClass: restricted }
       require: { deployment: private }        # never leaves the tenant's infrastructure
       candidates: [private/<open-weights-model>]
+    - match: { budget: soft }                 # once a soft limit is reached; see budgets below
+      candidates: [anthropic/claude-haiku-5-5, private/<small-model>]
     - match: { task: coding }
       candidates: [anthropic/claude-sonnet-5-5, openai/<coding-model>]
     - match: { task: reasoning }

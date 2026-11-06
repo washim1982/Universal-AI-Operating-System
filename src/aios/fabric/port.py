@@ -254,6 +254,10 @@ class EventBus(ABC):
     ) -> AsyncIterator[StoredEvent]:
         """Read stored events in order, by position, time range or run (FR-EVT-09)."""
 
+    @abstractmethod
+    def latest(self, scope: Scope, pattern: str = ">") -> AsyncIterator[StoredEvent]:
+        """Read stored events newest first. Stop reading when you have enough."""
+
     # ------------------------------------------------------------------ dead letters
 
     @abstractmethod

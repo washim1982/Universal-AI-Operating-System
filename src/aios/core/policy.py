@@ -12,17 +12,48 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import JsonValue
 
+OnTimeout = Literal["deny", "approve"]
+"""What happens when nobody answers an approval. Approving needs a rule that says so (FR-HUM-05)."""
+
 
 class PolicyAction(StrEnum):
-    """Actions that policies govern in v0.1. WP 2.2 adds publish, subscribe, dispatch and more."""
+    """Actions that policies govern (FR-SEC-04)."""
 
     TOOL_INVOKE = "tool.invoke"
     MEMORY_READ = "memory.read"
     MEMORY_WRITE = "memory.write"
+    MEMORY_MANAGE = "memory.manage"
+    APPROVAL_READ = "approval.read"
+    APPROVAL_DECIDE = "approval.decide"
+    TASK_DISPATCH = "task.dispatch"
+    MODEL_ROUTE = "model.route"
+    APP_INSTALL = "app.install"
+    APP_MANAGE = "app.manage"
+    APP_READ = "app.read"
+    RUN_START = "run.start"
+    RUN_READ = "run.read"
+    RUN_CONTROL = "run.control"
+    EVENT_READ = "event.read"
+    DLQ_MANAGE = "dlq.manage"
+    AUDIT_READ = "audit.read"
+    KEY_MANAGE = "key.manage"
+    SUSPEND = "security.suspend"
+    METRICS_READ = "metrics.read"
+
+
+MEMORY_ACTIONS = frozenset({PolicyAction.MEMORY_READ, PolicyAction.MEMORY_WRITE})
+WORKLOAD_ACTIONS = frozenset({PolicyAction.TASK_DISPATCH, PolicyAction.MODEL_ROUTE})
+"""Asked by the runtime for an agent, before it works or calls a model."""
+CONTROL_ACTIONS = (
+    frozenset(PolicyAction) - MEMORY_ACTIONS - WORKLOAD_ACTIONS - {PolicyAction.TOOL_INVOKE}
+)
+"""Asked by the API for its caller; the resource is the tenant."""
 
 
 class SideEffect(StrEnum):
@@ -77,6 +108,10 @@ class Resource:
     def memory_scope(cls, scope: str) -> Resource:
         return cls("MemoryScope", scope)
 
+    @classmethod
+    def tenant(cls, tenant: str) -> Resource:
+        return cls("Tenant", tenant)
+
 
 @dataclass(frozen=True, slots=True)
 class PolicyRequest:
@@ -103,6 +138,9 @@ class PolicyDecision:
     approvers: tuple[str, ...] = ()
     """Selectors such as ``role:support-lead`` when ``effect`` is REQUIRE_APPROVAL."""
     reason: str = ""
+    timeout: timedelta | None = None
+    """How long a person has to answer, when a rule says."""
+    on_timeout: OnTimeout = "deny"
 
     @property
     def allowed(self) -> bool:
@@ -115,8 +153,7 @@ class PolicyDecisionPoint(ABC):
 
 
 class AllowAll(PolicyDecisionPoint):
-    """The Phase 1 default (ADR-007): enforcement points call the port from the start, and
-    WP 2.2 swaps in the Cedar engine without touching them. Never use it in production."""
+    """For tests of the components around a decision. Never use it in production."""
 
     async def decide(self, request: PolicyRequest) -> PolicyDecision:
         return PolicyDecision(Effect.ALLOW, reason="allow-all policy decision point")

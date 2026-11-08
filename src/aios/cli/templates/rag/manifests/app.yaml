@@ -1,0 +1,29 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: aios-template-app, version: 0.1.0}
+spec:
+  description: "Aios Template App answers from its own documents."
+  entrypoints:
+    - {type: chat, workflow: answer}
+  agents: [answer-agent]
+  workflows: [answer]
+  memory: {scopes: [app]}
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: answer-agent, version: 0.1.0}
+spec:
+  description: Answers from the App's documents, and says which ones.
+  runtime: {type: python, entrypoint: "aios_template_app.agents:answer"}
+  capabilities: [{name: answering}]
+  memory: {read: [app]}
+  model: {task: reasoning}
+  limits: {maxSteps: 5, maxCostUSD: 0.50, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${answer.output}"
+  steps:
+    - {id: answer, type: task, capability: answering, input: {message: "${input.message}"}}

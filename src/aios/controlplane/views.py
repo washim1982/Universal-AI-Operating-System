@@ -22,7 +22,7 @@ from aios.observability.costs import ALERTS, Costs, costs_of, month_after, month
 from aios.observability.trace import Trace, trace_of
 
 if TYPE_CHECKING:
-    from aios.controlplane.runtime import Runtime
+    from aios.controlplane.runtime import InstalledApp, Runtime
 
 RECENT_TASKS = 200
 """How many of an App's newest task events an agent's figures are worked out from."""
@@ -47,6 +47,51 @@ class AgentView(BaseModel):
     completed: int = Field(default=0, description="Among the App's recent tasks")
     failed: int = 0
     last_active: datetime | None = None
+
+
+def app_of(installed: InstalledApp) -> dict[str, Any]:
+    """What an App is made of, for ``aios describe app`` (FR-CP-03)."""
+    manifest = installed.manifest
+    spec = manifest.spec
+    return {
+        "app": manifest.metadata.name,
+        "version": manifest.metadata.version,
+        "description": spec.description,
+        "entrypoints": [{"type": e.type, "workflow": e.workflow} for e in spec.entrypoints],
+        "agents": [
+            {
+                "agent": a.name,
+                "version": a.version,
+                "runtime": a.runtime,
+                "capabilities": list(a.capabilities),
+                "tools": list(a.tools.allow),
+            }
+            for a in installed.agents
+            if a.name in spec.agents
+        ],
+        "humans": [
+            {"capability": h.capability, "assignees": list(h.assignees)} for h in spec.humans
+        ],
+        "workflows": [
+            {
+                "workflow": w.metadata.name,
+                "version": w.metadata.version,
+                "steps": [
+                    {
+                        "id": s.id,
+                        "type": s.type,
+                        "capability": getattr(s, "capability", None),
+                        "tool": getattr(s, "tool", None),
+                        "needs": list(s.needs or []),
+                    }
+                    for s in w.spec.steps
+                ],
+            }
+            for _, w in sorted(installed.workflows.items())
+        ],
+        "policies": [p.metadata.name for p in installed.policies],
+        "permissions": {"tools": list(spec.permissions.tools)},
+    }
 
 
 async def agents_of(runtime: Runtime, tenant: str) -> list[AgentView]:

@@ -86,6 +86,60 @@ export interface Approval {
   by: string | null;
   comment: string | null;
   decided_at: string | null;
+  /** How many different approvers must say yes (FR-HUM-04). */
+  quorum?: number;
+  /** The yeses so far, when it needs several. */
+  votes?: { by: string; comment: string | null }[];
+  /** Who may answer now: those first asked, and any escalation taken (FR-HUM-05). */
+  approvers?: string[];
+  level?: number;
+  /** What the tool says the action would do: a dry run (FR-TOOL-07). */
+  preview?: unknown;
+  /** What the approver changed before saying yes (FR-HUM-06). */
+  edits?: Record<string, unknown> | null;
+}
+
+// --------------------------------------------------------------------------- work for people
+
+export type TaskStatus = "pending" | "completed" | "cancelled";
+
+/** Work people do for a run, as an agent would (FR-HUM-08). */
+export interface HumanTask {
+  task: string;
+  capability: string;
+  assignees: string[];
+  description: string;
+  input: unknown;
+  output_schema: Record<string, unknown> | null;
+  step: string | null;
+  app: string;
+  run: string | null;
+  status: TaskStatus;
+  requested_at: string;
+  tainted: boolean;
+  by: string | null;
+  output: unknown;
+  comment: string | null;
+  completed_at: string | null;
+}
+
+/** Where a person is told about approvals for them (FR-HUM-07). */
+export interface Contact {
+  email: string | null;
+  slack: string | null;
+}
+
+export interface Feedback {
+  feedback: string;
+  run: string;
+  at: string;
+  by: string;
+  step: string | null;
+  rating: "good" | "bad" | null;
+  correction: unknown;
+  comment: string | null;
+  remember: boolean;
+  memory: string | null;
 }
 
 // --------------------------------------------------------------------------- the trace (FR-OBS-03)

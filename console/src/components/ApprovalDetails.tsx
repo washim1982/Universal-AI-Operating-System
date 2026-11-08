@@ -8,6 +8,8 @@ import { RiskBadge, TaintNotice } from "./Badges";
 /** Everything an approver needs (FR-HUM-03). Any of it can come from an attacker by way of what
  * the agent read, so it is all shown as plain text, and nothing here is ever rendered as HTML. */
 export function ApprovalDetails({ approval }: { approval: Approval }) {
+  const quorum = approval.quorum ?? 1;
+  const votes = approval.votes ?? [];
   return (
     <article className="stack">
       <h1>{approval.summary}</h1>
@@ -31,6 +33,38 @@ export function ApprovalDetails({ approval }: { approval: Approval }) {
         )}
         <pre>{json(approval.payload)}</pre>
       </section>
+      {approval.preview !== undefined && approval.preview !== null && (
+        <section>
+          <h2>What the tool says it would do</h2>
+          <pre>{typeof approval.preview === "string" ? approval.preview : json(approval.preview)}</pre>
+          <p className="hint">A dry run by the tool itself. Nothing has happened yet.</p>
+        </section>
+      )}
+      {approval.edits && (
+        <section>
+          <h2>Changed before it was approved</h2>
+          <pre>{json(approval.edits)}</pre>
+        </section>
+      )}
+      {quorum > 1 && (
+        <section>
+          <h2>
+            {votes.length} of {quorum} approvals
+          </h2>
+          {votes.length > 0 ? (
+            <ul>
+              {votes.map((vote) => (
+                <li key={vote.by}>
+                  {person(vote.by)}
+                  {vote.comment ? `: ${vote.comment}` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">Nobody has said yes yet. One no is enough to stop it.</p>
+          )}
+        </section>
+      )}
       {approval.rationale && (
         <section>
           <h2>Why the agent says it wants this</h2>
@@ -49,6 +83,15 @@ export function ApprovalDetails({ approval }: { approval: Approval }) {
           <dd>{person(approval.initiator)}</dd>
           <dt>Rules that asked for this</dt>
           <dd>{approval.policies.join(", ") || "none named"}</dd>
+          {approval.approvers && (
+            <>
+              <dt>Who can answer</dt>
+              <dd>
+                {approval.approvers.join(", ")}
+                {(approval.level ?? 0) > 0 && " (escalated: nobody answered in time)"}
+              </dd>
+            </>
+          )}
           <dt>Expires</dt>
           <dd>{when(approval.expires_at)} UTC. If nobody answers, the answer is no.</dd>
           {approval.run && (

@@ -1,0 +1,15 @@
+# Refunds are allowed. Over $100, a person with the `approver` role says yes first, and sees
+# what the tool says it would do.
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: {name: refunds, version: 0.1.0}
+spec:
+  subject: {app: aios-template-app}
+  allow:
+    - {action: tool.invoke, resource: orders.refund.create}
+  requireApproval:
+    - action: tool.invoke
+      resource: orders.refund.create
+      when: {input: {amountUSD: {gt: 100}}}
+      approvers: ["role:approver"]
+      timeout: 1h

@@ -4,7 +4,7 @@ This guide takes you from a fresh checkout to a signed-off test of AIOS and its 
 apps. Every step says what to run and what you should see. The commands are for **PowerShell on
 Windows**, version 5.1 or 7, and the ports suit a machine that also runs Llama AI Studio.
 
-Record your results in the [sign-off sheet](#part-20-sign-off-sheet) as you go.
+Record your results in the [sign-off sheet](#part-24-sign-off-sheet) as you go.
 
 To use AIOS rather than test it, see the [user guide](user-guide.md).
 
@@ -37,6 +37,10 @@ To use AIOS rather than test it, see the [user guide](user-guide.md).
 | [16. Installing Apps](#part-16-installing-apps) | Nothing runs until a person agrees, and what they refuse stays refused | Docker Desktop for N12 | 15 min |
 | [17. The whole console](#part-17-the-whole-console) | Traces, Apps, agents, costs, policies, memory and events, each for the roles that may | Node.js, Docker | 25 min |
 | [18. Replay and fork](#part-18-replay-and-fork) | A run can be replayed for nothing, forked without side effects, and retried for real | Docker Desktop, Node.js for D6 | 20 min |
+| [19. Evaluation](#part-19-evaluation) | A change that scores lower is blocked, people grade, production runs are graded | Docker Desktop from E3 | 20 min |
+| [20. People in the loop](#part-20-people-in-the-loop) | People do a step, change what they approve, answer from Slack, and say what they thought | Node.js for Y7; Docker Desktop and Slack for Y8 | 20 min |
+| [21. Building Apps](#part-21-building-apps) | Templates make Apps that test clean; validate, describe, the schema registry, the TypeScript client and the docs site work | Node.js for G5 | 20 min |
+| [22. OpenAI clients and MCP](#part-22-openai-clients-and-mcp) | OpenAI's client and an MCP client ask Apps as the caller, and hear when a run waits | Nothing else | 10 min |
 
 For a quick confidence check, run Parts 1, 2 and 3. Run Part 6 before any live demo.
 
@@ -2825,7 +2829,622 @@ Press **Ctrl+C** in terminals 1, 2 and 4.
 
 ---
 
-## Part 19: Troubleshooting
+## Part 19: Evaluation
+
+Grade the AI Researcher against its suite, the way CI does, then on a server. A person grades a
+case, and a production run is graded as it finishes. It uses recorded answers, so it needs no
+model.
+
+### E1. Run the suite here, as CI does
+
+```powershell
+python -m uv run aios eval run apps/ai-researcher/evals/quality.yaml --app-dir apps/ai-researcher --cassettes tests/cassettes/ai-researcher --baseline apps/ai-researcher/evals/baseline.json
+```
+
+**Expected:** the case `otel-genai-2026` with four grades (`report-shape`, `cites-the-spec` and
+`on-topic` at 1.000, `grounded` at 0.571), `score 0.829`, `5 drifted`, and `gate: passed`.
+`$LASTEXITCODE` is `0`. The five drifted calls are answers recorded for older prompts: the suite
+says `onDrift: warn` until the recording is made again with a model.
+
+### E2. A worse answer fails the gate
+
+Open `apps/ai-researcher/evals/baseline.json` in an editor, change the first `"score": 0.571429`
+in it to `1.0`, and save it under a new name, `stricter.json`, in the same folder. Then:
+
+```powershell
+python -m uv run aios eval run apps/ai-researcher/evals/quality.yaml --app-dir apps/ai-researcher --cassettes tests/cassettes/ai-researcher --baseline apps/ai-researcher/evals/stricter.json
+```
+
+**Expected:** `gate: FAILED`, saying the score is below the baseline and that `grounded fell from
+1.000 to 0.571`. `$LASTEXITCODE` is `1`, which fails a CI build. Delete `stricter.json`.
+
+### E3. On a server, with a person grading
+
+Start PostgreSQL, a worker and the API as in [K1 to K3](#k1-start-the-stack), adding
+`--app tests/fixtures/apps/greeter` to both. Make an `operator` key and a reviewer's key:
+
+```powershell
+$operator = python -m uv run aios platform key --tenant acme --name operator --role operator
+```
+
+```powershell
+$qa = python -m uv run aios platform key --tenant acme --name qa --role member --role qa
+```
+
+Save a copy of `apps/ai-researcher/evals/quality.yaml` as `human.yaml` in the project folder, and add
+this grader after `on-topic`:
+
+```yaml
+    - name: tone
+      type: human
+      reviewers: ["role:qa"]
+```
+
+```powershell
+$env:AIOS_API_KEY = $operator
+```
+
+```powershell
+python -m uv run aios eval run human.yaml
+```
+
+**Expected:** `tone waiting`, and `gate: FAILED - waiting for a person to give 1 grade`. Copy the
+experiment id from the first line.
+
+```powershell
+$env:AIOS_API_KEY = $qa
+```
+
+```powershell
+python -m uv run aios eval grade <experiment-id> --app ai-researcher --case otel-genai-2026 --grader tone --score 0.9 --comment "clear and cited"
+```
+
+**Expected:** `tone 0.900` and `gate: passed`. Grading it again gives `error 409`; grading it with
+the operator's key gives `error 403`, because the grader names only `role:qa`.
+
+### E4. A production run, graded as it finishes
+
+The `greeter` App grades every run as it finishes.
+
+```powershell
+python -m uv run aios run greeter "hi"
+```
+
+```powershell
+python -m uv run aios eval online --app greeter
+```
+
+**Expected:** the run, with `"score": 1.0` and its grade `says-hello`. `aios logs <run-id> --app
+greeter` ends with `eval.run.graded`.
+
+Press **Ctrl+C** in the worker and API terminals.
+
+### What evaluation promises
+
+| Promise | Where it is proved |
+|---|---|
+| A change that scores lower than its baseline is blocked | `test_a_change_that_scores_lower_is_blocked`, `test_a_baseline_it_falls_below_fails_ci` |
+| A recording made for another prompt is reported, and can fail the gate | `test_a_stale_recording_blocks_a_suite_that_says_so` |
+| A judge is the App's own governed agent, and reads the output as data | `test_a_judge_grades_as_the_apps_evaluator` |
+| Only the people a grader names may grade, once | `test_a_person_grades_what_asks_for_one`, `test_a_reviewer_grades_and_nobody_else` |
+| A worker that takes an experiment over starts no case twice | `test_an_experiment_stopped_halfway_runs_only_the_rest`, `test_a_resumed_case_waits_for_the_run_it_had_started` |
+| Retrieval is scored by document, under policy | `test_retrieval_is_scored_on_a_golden_dataset`, `test_retrieval_reads_only_what_policy_lets_the_app_read` |
+
+---
+
+## Part 20: People in the loop
+
+A person reviews a refund, as an agent would do a step. Another approves it, and changes the
+amount first. Then someone says what they thought of the run. The App is in
+`tests/fixtures/apps/people-desk`. It needs no model and no key. Y8 answers an approval from Slack,
+and needs a Slack workspace where you may add an app.
+
+Use **single quotes** around anything with a `$` in it. Results are given one field at a time
+(`--field verdict=refund`): Windows PowerShell 5.1 drops the quotes inside JSON passed to a
+command.
+
+### Y1. Start the server
+
+In **terminal 1**:
+
+```powershell
+python -m uv run aios dev --app tests/fixtures/apps/people-desk --port 18080
+```
+
+### Y2. Ask for a refund
+
+In **terminal 2**:
+
+```powershell
+python -m uv run aios run people-desk 'Refund order 1001 $120'
+```
+
+**Expected:** `human.task.assigned`, and the command waits. The first step is a person's: nothing
+has been refunded, and nobody has been asked to approve anything yet. Leave it running.
+
+### Y3. Do the review
+
+In **terminal 3**:
+
+```powershell
+$work = python -m uv run aios tasks list | Out-String | ConvertFrom-Json
+```
+
+```powershell
+$work[0]
+```
+
+**Expected:** `capability` is `refunds.review`, with its `description`, the `input` (the customer's
+message) and an `output_schema` that asks for a `verdict` of `refund` or `refuse`.
+
+```powershell
+python -m uv run aios tasks complete $work[0].task --field verdict=maybe
+```
+
+**Expected:** `error 422`, saying the answer doesn't fit. Nothing was sent to the run.
+
+```powershell
+python -m uv run aios tasks complete $work[0].task --field verdict=refund --field 'note=arrived late'
+```
+
+**Expected:** `"status": "completed"`. In terminal 2, `human.task.completed`, then
+`approval.requested`: the refund itself now waits for a support lead.
+
+### Y4. Change it before approving
+
+```powershell
+$pending = python -m uv run aios approvals list | Out-String | ConvertFrom-Json
+```
+
+```powershell
+$pending[0].rationale
+```
+
+**Expected:** it includes the reviewer's note, `arrived late`.
+
+```powershell
+python -m uv run aios approvals approve $pending[0].approval --edit account=mine
+```
+
+**Expected:** `error 422`, `the action has no account`: only the values the action has can change.
+
+```powershell
+python -m uv run aios approvals approve $pending[0].approval --edit 'content=refunded $60 for order 1001 (half)' --comment "late, so half"
+```
+
+**Expected:** `"status": "granted"` and `"edits"` with the new content. In terminal 2,
+`approval.modified`, `tool.call.completed`, then `status=completed`.
+
+```powershell
+Get-Content (Get-ChildItem .aios\sandbox\refunds\*-1001.txt | Sort-Object LastWriteTime | Select-Object -Last 1)
+```
+
+**Expected:** `refunded $60 for order 1001 (half)`: what the approver wrote, not what the agent
+asked for.
+
+### Y5. A review that says no
+
+In terminal 2:
+
+```powershell
+python -m uv run aios run people-desk 'Refund order 1002 $5000'
+```
+
+In terminal 3:
+
+```powershell
+$work = python -m uv run aios tasks list | Out-String | ConvertFrom-Json
+```
+
+```powershell
+python -m uv run aios tasks complete $work[0].task --field verdict=refuse --field 'note=past the return window'
+```
+
+**Expected:** in terminal 2, the reply `The reviewer said no.`, and no `approval.requested` at all.
+
+### Y6. Say what you thought
+
+Copy the run id of Y2 from terminal 2: its first line is `run <run-id>`.
+
+```powershell
+python -m uv run aios feedback give people-desk <run-id> --rating good --comment "Half refunds for late deliveries are right" --remember
+```
+
+**Expected:** `"rating": "good"`, and `"memory"` with an id: the App's agents can now find the
+comment.
+
+```powershell
+python -m uv run aios feedback give people-desk <run-id> --correct 'reply=Refunded half of order 1001.'
+```
+
+```powershell
+python -m uv run aios feedback cases people-desk
+```
+
+**Expected:** YAML with one case: its `input` is the run's message, its `expected` is your
+correction, and it is tagged `feedback`. It can be pasted into an Evaluation's `spec.cases`.
+
+```powershell
+python -m uv run aios logs <run-id> --app people-desk
+```
+
+**Expected:** the run's events end with two `human.feedback.given`.
+
+### Y7. In the console
+
+With the console running as in [Part 15](#part-15-the-console), against this server, ask for
+another refund in terminal 2, then in the browser:
+
+1. **Tasks** shows the review, with a count in the menu. Open it, write
+   `{"verdict": "refund"}` under **Result**, and press **Done**.
+2. **Approvals** shows the refund. Open **Change something before approving**: each value of the
+   action is there to change. Change `content`, and press **Approve**.
+3. The run's page lists `approval.modified`. At its foot, **Feedback** takes a rating, a
+   correction and a comment.
+4. Your name, top right, opens **You**, where you give the addresses AIOS may reach you at.
+
+Press **Ctrl+C** in terminal 1 when you are done.
+
+### Y8. Answer from Slack (optional)
+
+This needs a Slack workspace where you may add an app, and the stack of
+[K1 to K3](#k1-start-the-stack).
+
+1. At <https://api.slack.com/apps>, create an app, add the bot scope `chat:write`, install it to
+   your workspace, and copy its **Bot User OAuth Token** (`xoxb-...`).
+2. In Slack, open your profile, then the three dots, then **Copy member ID** (`U...`).
+3. In the terminals of the worker and the API, before starting them as in K3 with
+   `--app tests/fixtures/apps/people-desk` added, set:
+
+```powershell
+$env:AIOS_SLACK_BOT_TOKEN = [Net.NetworkCredential]::new("", (Read-Host "Slack bot token" -AsSecureString)).Password
+```
+
+```powershell
+$env:AIOS_ACTION_LINK_SECRET = python -c "import secrets; print(secrets.token_urlsafe(36))"
+```
+
+```powershell
+$env:AIOS_PUBLIC_URL = "http://127.0.0.1:18080"
+```
+
+The link secret must be the same for both: set it once, and copy the value to the other terminal.
+
+4. Make a key for a support lead, and give it your Slack member ID:
+
+```powershell
+$lead = python -m uv run aios platform key --tenant acme --name lead --role member --role support-lead
+```
+
+```powershell
+Invoke-RestMethod -Method Put -Uri http://127.0.0.1:18080/v1/me/contact -Headers @{Authorization = "Bearer $lead"} -ContentType application/json -Body '{"slack": "<your member id>"}'
+```
+
+5. With another member's key, ask for a refund and complete its review as in Y3, using the lead's
+   key for the review.
+
+**Expected:** a direct message from your Slack app, `people-desk asks you to approve
+filesystem.file.write`, with **Approve** and **Deny** buttons. **Approve** opens a page on AIOS that
+shows the action and a button, and nothing is decided until you press it. Press it: `Approved`.
+`aios logs <run-id> --app people-desk` shows `approval.granted`, and its data says
+`"via": "slack"`. Opening the same link again says it is already granted.
+
+### What people in the loop promise
+
+| Promise | Where it is proved |
+|---|---|
+| A step can be people's work, and its answer must fit what was asked | `tests/unit/human/test_tasks.py` |
+| The first person to finish a task wins | `test_the_first_to_finish_it_wins` (memory and PostgreSQL) |
+| An approver can change the action, and the change is checked against policy again | `test_a_change_that_needs_more_approval_is_refused`, `test_a_change_that_policy_forbids_is_refused` |
+| n approvals are n people, and one no is enough | `test_a_quorum_needs_that_many_different_people`, `test_one_no_is_enough` |
+| Nobody answering means a reminder, then someone else | `test_nobody_answers_so_it_escalates`, `test_escalation_and_reminders_tell_people_again` |
+| An approval is completed from Slack with a signed link (M3 exit 5) | `test_an_approval_is_completed_from_slack_with_a_signed_link` |
+| A forged, changed, stranger's or stale link answers nothing | `test_a_forged_or_changed_link_is_refused`, `test_a_link_for_someone_the_rule_doesnt_name_answers_nothing`, `test_a_link_answers_with_the_roles_its_person_has_now` |
+| Nobody can set where someone else is told | `test_people_set_their_own_contact_and_nobody_elses` |
+| Feedback is on the run, can be remembered, and corrections become cases | `tests/unit/human/test_feedback.py` |
+
+---
+
+## Part 21: Building Apps
+
+What a developer meets first: templates, `validate` and `describe`, the schema registry, the
+TypeScript client and the docs site. None of it needs a model key.
+
+### G1. Make an App from a template, and test it
+
+In **terminal 1**, from the project folder:
+
+```powershell
+python -m uv run aios init shop-one --template approval --dir $env:TEMP
+```
+
+**Expected:** `created ...\shop-one from the approval template`, then where to read next.
+
+Note where AIOS is, then go to the new App and run its tests with AIOS's environment:
+
+```powershell
+$aios = (Get-Location).Path
+```
+
+```powershell
+Push-Location "$env:TEMP\shop-one"
+```
+
+```powershell
+python -m uv run --project $aios pytest
+```
+
+**Expected:** `2 passed`: a small refund happens, and a big one waits for a person. The
+tests use a stand-in model, so nothing is called and nothing is spent.
+
+```powershell
+Pop-Location
+```
+
+Try the other templates the same way, each in a new folder: `chat`, `rag`, `people`, `langgraph`
+and `openai-agents`.
+
+### G2. Check an App before it runs
+
+```powershell
+python -m uv run aios validate "$env:TEMP\shop-one"
+```
+
+**Expected:** `valid: shop-one 0.1.0: 1 agent(s), 0 done by people, 1 workflow(s), 1 policy(ies)`.
+
+Add an agent and a tool:
+
+```powershell
+python -m uv run aios init agent reviewer-agent --app "$env:TEMP\shop-one"
+```
+
+```powershell
+python -m uv run aios init tool orders.status.find --app "$env:TEMP\shop-one"
+```
+
+**Expected:** the files each made, then what is left to do: give the agent a workflow step, let an
+agent use the tool, allow it in a policy.
+
+```powershell
+python -m uv run aios validate "$env:TEMP\shop-one"
+```
+
+**Expected:** `warning: agent reviewer-agent: no workflow step asks for what it provides`, and still
+`valid`: an unused agent is a warning, not an error.
+
+### G3. Describe what runs
+
+Start the server with the people desk, as in [Y1](#y1-start-the-server), and ask it something as in
+Y2. Then in terminal 3:
+
+```powershell
+python -m uv run aios describe app people-desk
+```
+
+**Expected:** its agent, the work people do (`refunds.review: role:support-lead`), and the workflow
+step by step.
+
+```powershell
+python -m uv run aios describe run <run-id> --app people-desk
+```
+
+**Expected:** its status, cost, and each step with how many model and tool calls it made.
+
+### G4. The schema registry
+
+```powershell
+(Invoke-RestMethod http://127.0.0.1:18080/v1/schemas).events.Count
+```
+
+**Expected:** `83`, one for each standard event type.
+
+```powershell
+python -m uv run aios specs compat --against specs
+```
+
+**Expected:** `compatible with specs`. On a pull request, CI runs this against the base branch, and
+fails if a schema would refuse events or manifests the old one accepted.
+
+### G5. The TypeScript client
+
+Needs Node.js 20 or later. With the server of G3 still running:
+
+```powershell
+Push-Location sdks\typescript
+```
+
+```powershell
+npm ci
+```
+
+```powershell
+npm test
+```
+
+**Expected:** `9 passed`.
+
+```powershell
+npm run build
+```
+
+```powershell
+node examples/ask.mjs ai-researcher "What changed in the OpenTelemetry GenAI semantic conventions in 2026?"
+```
+
+This needs the AI Researcher on the server: start it as in [R1](#r1-start-the-server) instead, if
+it isn't. **Expected:** the run's events as they happen, ending with `run.completed`, then the report
+and `status=completed`.
+
+```powershell
+Pop-Location
+```
+
+### G6. The docs site
+
+```powershell
+python -m uv run mkdocs serve
+```
+
+Open `http://127.0.0.1:8000`. **Expected:** Home, Quickstart, Concepts, Guides, Reference and Design
+in the menu. Follow the Quickstart from its step 2 in a new folder; every command in it should work
+as written. Press **Ctrl+C** when you are done.
+
+### What building Apps promises
+
+| Promise | Where it is proved |
+|---|---|
+| Every template makes an App whose own tests pass | `test_every_template_makes_an_app_whose_tests_pass` |
+| A model's tool calls are made by the agent, through Tool OS | `test_an_agent_offers_tools_and_makes_the_calls_itself`, `test_a_tool_the_agent_may_not_use_stays_unused` |
+| LangGraph and OpenAI Agents SDK agents call models and AIOS tools through AIOS | `tests/unit/adapters/` |
+| A workflow in Python, YAML or JSON is the same | `test_python_yaml_and_json_are_the_same_workflow` |
+| A schema change that would break readers of old events is refused | `tests/unit/core/test_compat.py` |
+| The TypeScript client calls only routes the API has | `test_every_call_the_client_makes_is_a_route` |
+| The reference pages match the code | `aios docs reference --check`, in CI |
+
+---
+
+## Part 22: OpenAI clients and MCP
+
+Programs that speak OpenAI's API, and MCP clients such as AI assistants, ask an App without AIOS
+code. This part uses the real OpenAI SDK and the real MCP SDK, through two small scripts in
+`tests/fixtures/apps/helper/clients`. The helper App answers by itself, so no model key is needed:
+`refund` waits for a lead's approval, and anything else is echoed back.
+
+### O1. Start the server
+
+In **terminal 1**:
+
+```powershell
+$env:AIOS_TOOL_PROVIDERS = "helper_app.tools:providers"
+```
+
+```powershell
+python -m uv run aios dev --app tests/fixtures/apps/helper --port 18080
+```
+
+**Expected:** among the first lines, `OpenAI-compatible chat on http://127.0.0.1:18080/openai/v1,
+MCP server on http://127.0.0.1:18080/mcp`. `AIOS_TOOL_PROVIDERS` loads the App's stand-in payments
+tool.
+
+### O2. The Apps, as models
+
+In **terminal 2**, after the [setup lines](#12-set-up-each-terminal):
+
+```powershell
+(Invoke-RestMethod http://127.0.0.1:18080/openai/v1/models).data.id
+```
+
+**Expected:** `helper`.
+
+### O3. Ask with OpenAI's client
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_openai.py helper "hello there"
+```
+
+**Expected:** `models: helper`, then `you said hello there (1 messages)`, then
+`run <run-id>: completed`. The App received the whole conversation, which here is one message.
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_openai.py helper "hello there" --stream
+```
+
+**Expected:** the same answer, streamed.
+
+Copy the run id from the first command, then:
+
+```powershell
+(Invoke-RestMethod "http://127.0.0.1:18080/v1/apps/helper/runs/<run-id>/events")[0].data.via
+```
+
+**Expected:** `openai`: the run's record says which door it came through.
+
+```powershell
+python -m uv run aios status <run-id> --app helper
+```
+
+**Expected:** `"status": "completed"`: an ordinary run, with its trace in the console.
+
+### O4. A run that waits, and an App that isn't there
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_openai.py helper refund
+```
+
+**Expected:** `Run <run-id> is waiting for approval <id> (pay.refund.create(amountUSD=120)) from
+role:lead. It goes on once that is done; ask about run <run-id> again later.`, then
+`run <run-id>: waiting`. The client got an answer at once; the run waits for a person.
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_openai.py nobody hello
+```
+
+**Expected:** `error 404 (model_not_found): ... no App 'nobody' to chat with`.
+
+### O5. The Apps, as an assistant's tools
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_mcp.py
+```
+
+**Expected:** `tool ask-helper: Answers questions, and refunds orders once a lead says yes. ...`,
+`tool run-status: ...` and `resource aios://apps/helper`. There is no tool to approve anything.
+
+If the first line is `(the 2026 handshake failed: ...; using the classic one)`, security software
+on your machine rewrote a reply on its way (Norton does, here). The classic handshake, which most
+assistants use today, works; see [Troubleshooting](#part-23-troubleshooting).
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_mcp.py ask-helper hello from an assistant
+```
+
+**Expected:** `you said hello from an assistant (0 messages)`, then the run's state with
+`"status": "completed"` and its `trace`.
+
+### O6. Wait, approve, ask again
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_mcp.py ask-helper refund
+```
+
+**Expected:** `Run <run-id> is waiting for approval ...; ask again with run-status, app helper,
+run_id <run-id>.`, and `"status": "waiting"`. Copy that run id.
+
+Answer both refunds, this one and the one of O4:
+
+```powershell
+$pending = python -m uv run aios approvals list | Out-String | ConvertFrom-Json
+```
+
+```powershell
+foreach ($a in $pending) { python -m uv run aios approvals approve $a.approval }
+```
+
+**Expected:** `"status": "granted"` twice.
+
+```powershell
+python -m uv run python tests/fixtures/apps/helper/clients/ask_mcp.py run-status helper <run-id>
+```
+
+**Expected:** `refunded`, and `"status": "completed"`.
+
+Press **Ctrl+C** in terminal 1 when you are done.
+
+### What the two doors promise
+
+| Promise | Where it is proved |
+|---|---|
+| OpenAI's own client lists the Apps and gets an App's answer, streamed or not | `test_an_openai_client_talks_to_an_app`, `test_streaming_sends_the_answer_when_it_is_there` |
+| A run that waits for a person, or works long, says so and goes on | `test_a_run_that_waits_for_a_person_says_so`, `test_a_run_longer_than_the_wait_goes_on` |
+| The run is the caller's: their roles and tenant, named in the record | `test_who_may_ask_and_what` (both), `test_a_conversation_and_its_label_carry_over` |
+| A request with the client's own tools is refused, not ignored | `test_what_it_refuses` |
+| The MCP SDK's client lists and calls the Apps, by either handshake | `test_an_mcp_client_sees_the_apps_and_asks_one`, `test_a_client_of_the_classic_protocol_is_served_too` |
+| No MCP tool decides an approval; people do | `test_a_run_that_waits_for_a_person_is_asked_about_again` |
+| A server without sign-in answers MCP only at a loopback name | `test_a_local_server_answers_only_local_names` |
+
+---
+
+## Part 23: Troubleshooting
 
 | What you see | Cause | Fix |
 |---|---|---|
@@ -2870,10 +3489,13 @@ Press **Ctrl+C** in terminals 1, 2 and 4.
 | `error 409: run ... is running: only a finished run has all its record` | Replay, fork and retry start from a finished run | Wait for it, or cancel it |
 | `replay.diverged` | The agent, its prompt or what it recalled changed since the run, so the record can't answer | Fork from that step instead |
 | `error 409: nothing failed in that run` | A retry starts where the run failed | Add `--from <step>` |
+| `(the 2026 handshake failed: ...; using the classic one)`, or an MCP client's `peer unexpectedly closed connection` | Security software rewrites JSON-RPC replies on their way: Norton does on this machine, even on `127.0.0.1` | Use the classic handshake, as `ask_mcp.py` does; to be sure, try from another machine |
+| `error 400 (tools_not_supported)` from an OpenAI client | The request offered the client's own tools | Leave `tools` out: an App calls its own |
+| An OpenAI client says `Run ... is still working` | The run took longer than `AIOS_ANSWER_WAIT` (120 seconds) | Ask again later with the run id, or raise `AIOS_ANSWER_WAIT` |
 
 ---
 
-## Part 20: Sign-off sheet
+## Part 24: Sign-off sheet
 
 Tester: ______________  Date: ______________  Commit: ______________
 
@@ -2956,6 +3578,26 @@ Tester: ______________  Date: ______________  Commit: ______________
 | D4 | A fork and a replay of a refund write nothing and ask nobody | | |
 | D5 | Retry: refused to a member, asks again, writes for real | | |
 | D6 | Replay, fork, compare and a refused retry in the console | | |
+| E1-E2 | The eval gate passes, and a stricter baseline fails it | | |
+| E3 | A person grades a case; nobody else can, and not twice | | |
+| E4 | A production run graded as it finishes | | |
+| Y1-Y3 | A person's review: a wrong answer refused, a right one goes back to the run | | |
+| Y4 | An approval changed before it is approved; the file says what the approver wrote | | |
+| Y5 | A review that says no asks nobody to approve | | |
+| Y6 | Feedback, kept in memory, and a correction as an evaluation case | | |
+| Y7 | Tasks, changing an approval, feedback and You in the console | | |
+| Y8 | An approval answered from Slack (optional) | | |
+| G1 | Templates make Apps whose tests pass | | |
+| G2 | validate, and init agent and tool | | |
+| G3 | describe an App and a run | | |
+| G4 | The schema registry, and the compatibility check | | |
+| G5 | The TypeScript client follows a run to its end | | |
+| G6 | The docs site, and its quickstart as written | | |
+| O1-O2 | The server names both doors; the Apps are models | | |
+| O3 | OpenAI's client gets the answer, streamed too; the run says `via: openai` | | |
+| O4 | A run that waits says so; an unknown App is a 404 | | |
+| O5 | An MCP client sees the Apps as tools, and asks one | | |
+| O6 | A waiting run, approved by a person, is answered by run-status | | |
 
 ### What this guide does not cover
 
@@ -2971,6 +3613,9 @@ them:
 - A fork with an older agent version. Agent code isn't pinned per version (ADR-014), so a fork
   runs the code installed now.
 - Token streaming and agent lifecycle controls.
+- The MCP 2026 handshake over a real connection on this machine, where Norton rewrites its replies.
+  Tests cover it with the MCP SDK's client in the same process; O5 uses the classic handshake.
+- Desktop assistants and IDEs by hand. Part 22 uses the OpenAI and MCP SDKs, which those build on.
 - Real Anthropic, Gemini and Brave calls. Prompt caching and the Gemini adapter have only been
   tried against stand-in servers, so a real cache hit hasn't been seen.
 - Embeddings and tool credentials by hand. No app uses them yet, so [A6](#a6-embeddings-and-tool-credentials)

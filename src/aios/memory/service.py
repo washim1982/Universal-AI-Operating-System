@@ -527,6 +527,48 @@ class MemoryService(MemoryGateway):
         await self._tenant_event(by, "memory.item.updated", payload.model_dump(mode="json"))
         return changed
 
+    async def remember_as(
+        self,
+        by: Identity,
+        content: str,
+        *,
+        event: Event,
+        kind: MemoryKind = "episodic",
+        metadata: Mapping[str, JsonValue] | None = None,
+    ) -> MemoryItem:
+        """What a person asks an App to remember (FR-HUM-09): its memory, written by them, from
+        ``event``. Whoever calls this has checked they may. Until something writes it again it
+        has no vector, so it is found by keyword."""
+        now = datetime.now(UTC)
+        item = MemoryItem(
+            id=ulid_for(f"{event.id}/remembered", event.time),
+            tenant=event.tenantid,
+            scope="app",
+            owner=event.appid,
+            content=content,
+            kind=kind,
+            retention=default_retention("app"),
+            sensitivity=DataClass.strictest(DataClass.INTERNAL, event.dataclass),
+            metadata=dict(metadata or {}),
+            provenance=Provenance(author=by.principal, source_event=event.id, created_at=now),
+            updated_at=now,
+        )
+        if await self._fetch(item.tenant, item.id) is not None:
+            return item  # remembered already
+        await self.store.add([Stored(self._embedded(item, None), None)])
+        payload = MemoryWritten(
+            item=item.id,
+            scope=item.scope,
+            kind=item.kind,
+            retention=item.retention,
+            sensitivity=item.sensitivity.value,
+            version=item.version,
+        )
+        await self._tenant_event(
+            by, "memory.item.written", payload.model_dump(mode="json"), app=event.appid
+        )
+        return item
+
     async def forget_as(
         self, by: Identity, *, item: str | None = None, subject: str | None = None
     ) -> Erasure:

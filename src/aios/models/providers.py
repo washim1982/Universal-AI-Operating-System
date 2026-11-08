@@ -1,13 +1,15 @@
 """Provider adapters over the official SDKs (ADR-008, FR-MOD-02).
 
 Each adapter turns a provider-neutral :class:`ModelRequest` into one provider call and returns
-a :class:`Completion`: the text, the token counts and the model that actually served it.
+a :class:`Completion`: the text, any tool calls the model asked for, the token counts and the model
+that actually served it.
 Routing, fallback, accounting and recording stay in the kernel. Providers with an embeddings
 API also return an :class:`Embedding`; the others refuse, and the kernel tries the next candidate.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Mapping
@@ -18,9 +20,10 @@ import anthropic
 import httpx2
 import openai
 
+from aios.core.catalog import ModelToolCall
 from aios.core.envelope import DataClass
 from aios.core.errors import ModelError
-from aios.core.ports import EmbeddingRequest, ModelRequest
+from aios.core.ports import EmbeddingRequest, Message, ModelRequest
 from aios.models.registry import ModelEntry
 
 ANTHROPIC_FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -37,6 +40,10 @@ class Completion:
     latency_ms: float = 0.0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    drifted: bool = False
+    """Played from a recording made for another request (FR-OBS-07 reports it)."""
+    tool_calls: tuple[ModelToolCall, ...] = ()
+    """Tools the model asked to call (FR-MOD-01)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,10 +98,18 @@ class AnthropicProvider(Provider):
         params: dict[str, Any] = {
             "model": entry.model,
             "max_tokens": request.max_tokens,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": _anthropic_messages(request.messages),
         }
         if request.system:
             params["system"] = request.system
+        if request.tools:
+            params["tools"] = [
+                {"name": t.name, "description": t.description, "input_schema": t.parameters}
+                for t in request.tools
+            ]
+            if request.tool_choice is not None:
+                choice = {"auto": "auto", "required": "any", "none": "none"}[request.tool_choice]
+                params["tool_choice"] = {"type": choice}
         if request.data_class is not DataClass.RESTRICTED:
             self._cache(params, request)
         if request.output_schema is not None:
@@ -129,6 +144,11 @@ class AnthropicProvider(Provider):
         text = "".join(
             block.text for block in message.content if getattr(block, "type", None) == "text"
         )
+        calls = tuple(
+            ModelToolCall(id=block.id, name=block.name, arguments=dict(block.input or {}))
+            for block in message.content
+            if getattr(block, "type", None) == "tool_use"
+        )
         usage = message.usage
         cache_write = getattr(usage, "cache_creation_input_tokens", None) or 0
         cache_read = getattr(usage, "cache_read_input_tokens", None) or 0
@@ -141,6 +161,7 @@ class AnthropicProvider(Provider):
             latency_ms=latency,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
+            tool_calls=calls,
         )
 
     @staticmethod
@@ -186,15 +207,29 @@ class OpenAIProvider(Provider):
         )
 
     async def complete(self, entry: ModelEntry, request: ModelRequest) -> Completion:
-        messages: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
-        messages += [{"role": m.role, "content": m.content} for m in request.messages]
+        messages += [_openai_message(m) for m in request.messages]
         params: dict[str, Any] = {
             "model": entry.model,
             "messages": messages,
             "max_completion_tokens": request.max_tokens,
         }
+        if request.tools:
+            params["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                }
+                for t in request.tools
+            ]
+            if request.tool_choice is not None:
+                params["tool_choice"] = request.tool_choice
         if request.temperature is not None:
             params["temperature"] = request.temperature
         if request.output_schema is not None:
@@ -214,6 +249,16 @@ class OpenAIProvider(Provider):
         choice = response.choices[0]
         usage = response.usage
         details = getattr(usage, "prompt_tokens_details", None)
+        asked: list[Any] = list(choice.message.tool_calls or [])
+        calls = tuple(
+            ModelToolCall(
+                id=str(call.id),
+                name=str(call.function.name),
+                arguments=_arguments(call.function.arguments),
+            )
+            for call in asked
+            if getattr(call, "type", "function") == "function"
+        )
         return Completion(
             text=cast(str, choice.message.content or ""),
             input_tokens=usage.prompt_tokens if usage else 0,
@@ -223,6 +268,7 @@ class OpenAIProvider(Provider):
             latency_ms=latency,
             cache_read_tokens=getattr(details, "cached_tokens", None) or 0,
             cache_write_tokens=getattr(details, "cache_write_tokens", None) or 0,
+            tool_calls=calls,
         )
 
     async def embed(self, entry: ModelEntry, request: EmbeddingRequest) -> Embedding:
@@ -257,3 +303,66 @@ class OpenAIProvider(Provider):
             ) from exc
         except openai.APIConnectionError as exc:
             raise ProviderError(f"{self.name} connection error: {exc}", retryable=True) from exc
+
+
+def _anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    """Turns as the Messages API wants them: an assistant's tool calls are ``tool_use`` blocks,
+    and the answers to them, together, are the next user turn's ``tool_result`` blocks."""
+    found: list[dict[str, Any]] = []
+    for message in messages:
+        if message.role == "tool":
+            result = {
+                "type": "tool_result",
+                "tool_use_id": message.tool_call_id,
+                "content": message.content,
+            }
+            last = found[-1] if found else None
+            if last is not None and last["role"] == "user" and isinstance(last["content"], list):
+                cast(list[dict[str, Any]], last["content"]).append(result)
+            else:
+                found.append({"role": "user", "content": [result]})
+        elif message.tool_calls:
+            blocks: list[dict[str, Any]] = (
+                [{"type": "text", "text": message.content}] if message.content else []
+            )
+            blocks += [
+                {"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments}
+                for c in message.tool_calls
+            ]
+            found.append({"role": "assistant", "content": blocks})
+        else:
+            found.append({"role": message.role, "content": message.content})
+    return found
+
+
+def _openai_message(message: Message) -> dict[str, Any]:
+    if message.role == "tool":
+        return {"role": "tool", "tool_call_id": message.tool_call_id, "content": message.content}
+    if message.tool_calls:
+        return {
+            "role": "assistant",
+            "content": message.content or None,
+            "tool_calls": [
+                {
+                    "id": c.id,
+                    "type": "function",
+                    "function": {"name": c.name, "arguments": json.dumps(c.arguments)},
+                }
+                for c in message.tool_calls
+            ],
+        }
+    return {"role": message.role, "content": message.content}
+
+
+def _arguments(text: str | None) -> dict[str, Any]:
+    """A tool call's arguments, which the API sends as JSON text. A model that wrote something
+    else may do better on another try."""
+    try:
+        found = json.loads(text or "{}")
+    except ValueError as exc:
+        raise ProviderError(
+            f"the model's tool arguments aren't JSON: {exc}", retryable=True
+        ) from exc
+    if not isinstance(found, dict):
+        raise ProviderError("the model's tool arguments aren't an object", retryable=True)
+    return cast(dict[str, Any], found)

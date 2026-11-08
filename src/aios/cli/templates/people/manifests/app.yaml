@@ -1,0 +1,42 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: aios-template-app, version: 0.1.0}
+spec:
+  description: "Aios Template App: a person reviews each request, then an agent replies."
+  entrypoints:
+    - {type: chat, workflow: answer}
+  agents: [reply-agent]
+  workflows: [answer]
+  humans:
+    - capability: requests.review
+      assignees: ["role:reviewer"]
+      description: Read the request and decide whether to accept it.
+      output:
+        type: object
+        required: [accept]
+        properties:
+          accept: {type: boolean}
+          note: {type: string}
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: reply-agent, version: 0.1.0}
+spec:
+  description: Writes the reply, from the reviewer's decision.
+  runtime: {type: python, entrypoint: "aios_template_app.agents:reply"}
+  capabilities: [{name: replying}]
+  model: {task: summarizing}
+  limits: {maxSteps: 5, maxCostUSD: 0.20, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${reply.output}"
+  steps:
+    - {id: review, type: task, capability: requests.review, input: {message: "${input.message}"}}
+    - id: reply
+      type: task
+      capability: replying
+      needs: [review]
+      input: {message: "${input.message}", review: "${review.output}"}

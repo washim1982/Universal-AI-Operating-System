@@ -15,11 +15,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from aios.core.catalog import InjectionSuspected, Risk, Usage
+from aios.core.catalog import InjectionSuspected, ModelToolCall, Risk, Usage
 from aios.core.envelope import DataClass, Event
 from aios.core.errors import ApprovalRequiredError
 from aios.core.memory import (
@@ -33,7 +33,7 @@ from aios.core.memory import (
     SearchResult,
     Written,
 )
-from aios.core.policy import OnTimeout
+from aios.core.policy import ApprovalTerms, OnTimeout
 
 logger = logging.getLogger("aios.core")
 
@@ -90,11 +90,59 @@ class CallSite:
 # --------------------------------------------------------------------------- models
 
 
-class Message(BaseModel):
+TOOL_NAME_FOR_MODELS = r"^[A-Za-z0-9_-]{1,64}$"
+"""What every provider accepts as a tool's name: no dots, so ``search.web.query`` is offered to a
+model as ``search__web__query`` (:func:`model_tool_name`)."""
+
+
+def model_tool_name(tool: str) -> str:
+    """The name a model sees for an AIOS tool."""
+    return tool.replace(".", "__")
+
+
+def tool_name_of(model_name: str) -> str:
+    """The AIOS tool a model's name stands for."""
+    return model_name.replace("__", ".")
+
+
+class ModelTool(BaseModel):
+    """A tool offered to a model (FR-MOD-01): its name, what it does and its JSON Schema."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    role: Literal["user", "assistant"]
-    content: str
+    name: str = Field(pattern=TOOL_NAME_FOR_MODELS)
+    description: str = ""
+    parameters: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object", "properties": {}},
+        description="JSON Schema of the arguments, an object",
+    )
+
+
+def _empty(value: Any) -> bool:
+    return not value
+
+
+class Message(BaseModel):
+    """One turn. An assistant turn may ask for tool calls; a ``tool`` turn answers one of them.
+
+    Fields added for tool calling are left out of a message's dump while they are empty, so a
+    request hashes as it did before they existed and older recordings still match.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    role: Literal["user", "assistant", "tool"]
+    content: str = ""
+    tool_calls: list[ModelToolCall] = Field(default_factory=list[ModelToolCall], exclude_if=_empty)
+    tool_call_id: str | None = Field(default=None, exclude_if=_empty)
+
+    @model_validator(mode="after")
+    def _well_formed(self) -> Self:
+        if self.tool_calls and self.role != "assistant":
+            raise ValueError("only an assistant turn asks for tool calls")
+        if (self.role == "tool") != (self.tool_call_id is not None):
+            raise ValueError("a tool turn, and only a tool turn, answers a tool_call_id")
+        return self
 
 
 class ModelRequest(BaseModel):
@@ -112,6 +160,17 @@ class ModelRequest(BaseModel):
     max_tokens: int = Field(default=16_000, ge=1)
     temperature: float | None = Field(default=None, ge=0, le=2)
     data_class: DataClass = DataClass.INTERNAL
+    tools: list[ModelTool] = Field(default_factory=list[ModelTool], exclude_if=_empty)
+    tool_choice: Literal["auto", "required", "none"] | None = Field(
+        default=None, exclude_if=_empty, description="Whether the model must, may or can't ask"
+    )
+
+    @model_validator(mode="after")
+    def _tools_named_once(self) -> Self:
+        names = [tool.name for tool in self.tools]
+        if len(set(names)) != len(names):
+            raise ValueError("two tools share a name")
+        return self
 
 
 class ModelResponse(BaseModel):
@@ -127,6 +186,8 @@ class ModelResponse(BaseModel):
     replayed: bool = Field(
         default=False, description="Taken from the run's recorded calls, not executed again"
     )
+    tool_calls: list[ModelToolCall] = Field(default_factory=list[ModelToolCall])
+    """What the model asked to call. The agent calls them, or doesn't."""
 
 
 class EmbeddingRequest(BaseModel):
@@ -174,7 +235,20 @@ class ToolResult(BaseModel):
     latency_ms: float = 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class ToolDescription:
+    """What a tool is, for a model to be told about it."""
+
+    name: str
+    description: str
+    input_schema: Mapping[str, Any]
+
+
 class ToolGateway(ABC):
+    async def describe(self, name: str, site: CallSite) -> ToolDescription:
+        """A tool's description and input schema. Describing it calls nothing."""
+        raise NotImplementedError(f"this gateway can't describe {name}")
+
     @abstractmethod
     async def invoke(
         self,
@@ -205,12 +279,24 @@ class Proposal:
     taint: tuple[str, ...] = ()
     timeout: timedelta | None = None
     on_timeout: OnTimeout = "deny"
+    terms: ApprovalTerms = field(default_factory=ApprovalTerms)
+    preview: JsonValue = None
+    """What the tool says the action would do, from a dry run (FR-TOOL-07)."""
+
+
+@dataclass(frozen=True, slots=True)
+class Approved:
+    """A person's yes, and what they approved if they changed it (FR-HUM-06)."""
+
+    approval: str
+    payload: JsonValue = None
+    """The action's arguments as the approver left them; ``None`` if they changed nothing."""
 
 
 class ApprovalGateway(ABC):
     @abstractmethod
-    async def require(self, proposal: Proposal, site: CallSite) -> str:
-        """The id of the approval for exactly this call, if a person has given it.
+    async def require(self, proposal: Proposal, site: CallSite) -> Approved:
+        """The approval for exactly this call, if a person has given it.
 
         Otherwise raises :class:`~aios.core.errors.AwaitingApproval` while someone decides,
         :class:`~aios.core.errors.ApprovalDeniedError` if the answer was no, and
@@ -221,7 +307,7 @@ class ApprovalGateway(ABC):
 class NoApprovals(ApprovalGateway):
     """For components used without Human OS: nobody can approve, so nothing goes ahead."""
 
-    async def require(self, proposal: Proposal, site: CallSite) -> str:
+    async def require(self, proposal: Proposal, site: CallSite) -> Approved:
         raise ApprovalRequiredError(f"{proposal.action}: approval required", proposal.approvers)
 
 

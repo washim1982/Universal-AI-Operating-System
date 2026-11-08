@@ -48,6 +48,7 @@ RESERVED_DOMAINS = frozenset(
         "policy",
         "security",
         "budget",
+        "eval",
         "system",
     }
 )

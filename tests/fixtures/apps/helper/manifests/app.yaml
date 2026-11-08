@@ -1,0 +1,35 @@
+# The App the OpenAI-compatible endpoint and the MCP server are tested with (WP 3.7). What it
+# does depends on the message: "refund" waits for a lead's approval, "slow" takes a while, "fail"
+# fails, "json" answers with data; anything else is echoed back.
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: helper, version: 0.1.0}
+spec:
+  description: "Answers questions, and refunds orders once a lead says yes."
+  entrypoints: [{type: chat, workflow: answer}]
+  workflows: [answer]
+  agents: [helper-agent]
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: helper-agent, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "helper_app.agents:helper"}
+  capabilities: [{name: answering}]
+  tools: {allow: ["pay.refund.create"]}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${answer.output}"
+  steps:
+    - {id: answer, type: task, capability: answering}
+---
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: {name: refunds, version: 1.0.0}
+spec:
+  subject: {app: helper}
+  requireApproval:
+    - {action: tool.invoke, resource: pay.refund.create, approvers: ["role:lead"]}

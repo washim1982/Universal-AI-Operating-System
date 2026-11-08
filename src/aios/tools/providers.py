@@ -81,6 +81,10 @@ class ToolProvider(ABC):
         egress: Egress | None = None,
     ) -> JsonValue: ...
 
+    async def preview(self, name: str, arguments: Mapping[str, JsonValue]) -> JsonValue:
+        """What a call would do, without doing it (FR-TOOL-07); ``None`` when it can't say."""
+        return None
+
     async def close(self) -> None:  # noqa: B027 - optional hook
         """Release connections."""
 
@@ -101,6 +105,15 @@ class NativeTool:
         self.takes_idempotency_key = "idempotency_key" in parameters
         self.takes_credentials = "credentials" in parameters
         self.takes_egress = "egress" in parameters
+        self.previews: ToolFunction | None = None
+
+    def previewer(self, function: ToolFunction) -> ToolFunction:
+        """Declare this tool's dry run: same parameters, no side effects, says what would happen.
+
+        An approver is shown what it returns (FR-TOOL-07).
+        """
+        self.previews = function
+        return function
 
 
 def tool(
@@ -159,6 +172,13 @@ class NativeProvider(ToolProvider):
 
     async def list_tools(self) -> list[ToolSpec]:
         return [native.spec for native in self._tools.values()]
+
+    async def preview(self, name: str, arguments: Mapping[str, JsonValue]) -> JsonValue:
+        native = self._tools.get(name)
+        if native is None or native.previews is None:
+            return None
+        parsed = native.arguments.model_validate(dict(arguments))
+        return cast(JsonValue, await native.previews(**parsed.model_dump()))
 
     async def call(
         self,

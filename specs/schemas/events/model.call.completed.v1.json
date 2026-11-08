@@ -3,6 +3,38 @@
   "$id": "aios://schemas/model.call.completed/1",
   "$defs": {
     "JsonValue": {},
+    "ModelToolCall": {
+      "additionalProperties": false,
+      "description": "A tool the model asks to call (FR-MOD-01). Asking is all a model does: the agent decides,\nand calls it through Tool OS, where policy, budgets and approvals apply as to any call.",
+      "properties": {
+        "id": {
+          "description": "The provider's id for the call",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "arguments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Arguments",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "ModelToolCall",
+      "type": "object"
+    },
     "Usage": {
       "additionalProperties": false,
       "properties": {
@@ -165,6 +197,20 @@
       "default": null,
       "description": "What was asked, so a replay can tell when it asks otherwise",
       "title": "Request Hash"
+    },
+    "drifted": {
+      "default": false,
+      "description": "Answered from a recording that was made for another request",
+      "title": "Drifted",
+      "type": "boolean"
+    },
+    "tool_calls": {
+      "description": "The tools the model asked to call, recorded for replay (FR-MOD-01)",
+      "items": {
+        "$ref": "#/$defs/ModelToolCall"
+      },
+      "title": "Tool Calls",
+      "type": "array"
     }
   },
   "required": [

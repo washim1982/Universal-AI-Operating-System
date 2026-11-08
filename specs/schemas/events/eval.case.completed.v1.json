@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/eval.case.completed/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "A case, run and graded. Grades a person still owes are ``pending``.",
+  "properties": {
+    "case": {
+      "title": "Case",
+      "type": "string"
+    },
+    "result": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Result",
+      "type": "object"
+    }
+  },
+  "required": [
+    "case",
+    "result"
+  ],
+  "title": "eval.case.completed v1 payload",
+  "type": "object"
+}

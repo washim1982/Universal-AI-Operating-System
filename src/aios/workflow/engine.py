@@ -36,6 +36,7 @@ from pydantic import JsonValue
 
 from aios.core.catalog import (
     AppRequestReceived,
+    ApprovalEscalation,
     ApprovalRequested,
     BudgetExceeded,
     ErrorInfo,
@@ -478,6 +479,12 @@ class _Planner:
                         step=step.id,
                         expires_at=started.time + (step.timeout or DEFAULT_APPROVAL_TIMEOUT),
                         on_timeout=step.on_timeout,
+                        quorum=step.quorum,
+                        remind_every=step.remind_every,
+                        escalation=[
+                            ApprovalEscalation(after=e.after, approvers=list(e.approvers))
+                            for e in step.escalate
+                        ],
                     ),
                     cause=started,
                 )
@@ -674,6 +681,8 @@ class _Planner:
         self.emit("run.resumed", RunResumed(reason="approval", step=step.id), cause=cause)
         if decision.approved:
             output: JsonValue = {"approved": True, "by": decision.by}
+            if decision.payload is not None:  # the approver changed it (FR-HUM-06)
+                output["payload"] = decision.payload
             self.emit(
                 "step.completed",
                 StepCompleted(step=step.id, output=output, loop=state.loop),

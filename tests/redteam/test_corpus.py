@@ -6,7 +6,9 @@ asks, every time, which is the worst a model can do. See ``corpus.yaml``.
 
 import asyncio
 import contextlib
+import json
 import sys
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -16,9 +18,12 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 
 import httpx2
+import mcp
 import pytest
 import yaml
+from mcp.client.streamable_http import streamable_http_client
 
+from aios.api import create_app
 from aios.core.envelope import DataClass, Event
 from aios.core.identity import Identity
 from aios.core.ids import new_ulid
@@ -27,9 +32,11 @@ from aios.core.memory import MemoryItem, Provenance
 from aios.core.policy import SideEffect
 from aios.core.ports import ModelRequest
 from aios.fabric import Scope
+from aios.human import signature
 from aios.kernel import Context, agent
 from aios.memory import Document, Stored
 from aios.models import Completion, ModelEntry, Provider
+from aios.security.identity import ApiKeys
 from aios.testing.runtime import LocalRuntime
 from aios.tools import NativeProvider, http_provider, tool
 
@@ -41,6 +48,10 @@ LEAD = "user:lead@acme"
 MODULE = "redteam_handlers"
 EVIL = "evil.example"
 ALLOWED = "docs.example.com"
+HOOK, HOOK_SECRET = "inbound", "the-desk-webhook-secret-for-red-team-cases"
+DOORS = ("mcp", "openai")
+"""Ways an AI assistant asks an App for its user (WP 3.7): the MCP server and OpenAI's chat."""
+ASSISTANT_WAIT = 5.0
 
 MANIFESTS = """
 apiVersion: aios/v1alpha1
@@ -51,9 +62,11 @@ spec:
     - {type: chat, workflow: ticket, untrustedInput: %(relayed)s}
     - {type: event, on: "ticket.created", workflow: ticket}
     - {type: event, on: "refund.wanted", workflow: ticket, untrustedInput: false}
+    - {type: webhook, name: inbound, workflow: ticket, secret: HOOK_KEY}
   agents: [reader, actor, bystander]
   workflows: [ticket]
   modelPolicy: redteam
+  config: {secrets: [HOOK_KEY]}
   egress:
     allow: [docs.example.com]
 ---
@@ -206,7 +219,8 @@ def _handlers(case: dict[str, Any]) -> tuple[Fooled, Fooled, Fooled]:
                 ctx.tainted = False  # type: ignore[misc]
             ctx.taint_sources.clear()
         if "emit" in attack:
-            await ctx.emit(attack["emit"], {"approval": "01J0000000000000000000000A"})
+            forged = attack.get("data", {"approval": "01J0000000000000000000000A"})
+            await ctx.emit(attack["emit"], forged)
         elif "memory" in attack:
             await ctx.memory.put(attack["memory"], scope=attack["scope"])
         elif "model" in attack:
@@ -287,8 +301,36 @@ class Scene:
         elif channel == "event":
             await self.runtime.bus.publish(self._ticket())
             return
+        elif channel == "webhook":
+            body = json.dumps({"text": self.payload}).encode()
+            header = signature(HOOK_SECRET, int(time.time()), body)
+            await runtime.receive_webhook(TENANT, APP, HOOK, body, header)
+            return
         message = self.payload if channel in ("chat", "relayed") else "please help"
+        if "door" in self.case:
+            await self._ask_through(str(self.case["door"]), message)
+            return
         await runtime.chat(APP, message, tenant=TENANT, session=session)
+
+    async def _ask_through(self, door: str, message: str) -> None:
+        """An AI assistant asks for its user, with its user's key, as a client of that door."""
+        core = self.runtime.runtime
+        _, key = await core.create_key(OPERATOR, "assistant", ["member"])
+        api = create_app(core, authenticator=ApiKeys(core.security), answer_wait=ASSISTANT_WAIT)
+        http = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=api),
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=30,
+        )
+        async with api.router.lifespan_context(api), http:
+            if door == "openai":
+                asked = {"model": APP, "messages": [{"role": "user", "content": message}]}
+                answer = await http.post("http://aios/openai/v1/chat/completions", json=asked)
+                assert answer.status_code in (200, 502), answer.text  # in, whatever the run did
+                return
+            transport = streamable_http_client("http://aios.example/mcp", http_client=http)
+            async with mcp.Client(transport, read_timeout_seconds=30) as client:
+                await client.call_tool(f"ask-{APP}", {"message": message})
 
     def _ticket(self) -> Event:
         return Event(
@@ -356,6 +398,7 @@ async def open_scene(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[OpenScene
         module = ModuleType(MODULE)
         module.read, module.act, module.bystander = read, act, bystander  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, MODULE, module)
+        monkeypatch.setenv("AIOS_SECRET_HOOK_KEY", HOOK_SECRET)
         effects = Effects()
         runtime = LocalRuntime(tenant=TENANT, providers={"open": Model(effects)})
         await runtime.__aenter__()
@@ -405,13 +448,23 @@ def _story(events: list[Event]) -> str:
     return " > ".join(e.type for e in events if not e.type.startswith("agent.lifecycle."))
 
 
+def _doors(events: list[Event]) -> set[str]:
+    """Which way each request came in, as the audit trail records it."""
+    requests = [e.data for e in events if e.type == "app.request.received"]
+    return {str(data.get("via")) for data in requests if isinstance(data, dict)}
+
+
 def test_every_case_is_well_formed() -> None:
     assert len({case["id"] for case in CASES}) == len(CASES)
+    channels = ("chat", "relayed", "event", "webhook", "tool", "memory", "session")
     for case in CASES:
         assert case["expect"] in ("escalated", "blocked"), case["id"]
         assert case["owasp"], case["id"]
-        assert case["channel"] in ("chat", "relayed", "event", "tool", "memory", "session")
+        assert case["channel"] in channels, case["id"]
         assert cast(dict[str, Any], case["attack"]), case["id"]
+        if "door" in case:  # a door is how a person's request arrives, so only for their words
+            assert case["door"] in DOORS, case["id"]
+            assert case["channel"] in ("chat", "relayed"), case["id"]
 
 
 @pytest.mark.redteam
@@ -426,3 +479,5 @@ async def test_a_fooled_agent_gets_the_attacker_nothing(
     events = await scene.settled()
     assert not _attacker_won(case, scene.effects, events), _story(events)
     assert _stopped_how(events) == case["expect"], _story(events)
+    if "door" in case:  # the run really came through that door, not some other way
+        assert _doors(events) == {case["door"]}, _story(events)

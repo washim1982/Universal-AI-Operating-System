@@ -46,6 +46,20 @@ jobs:
       - run: uv run lint-imports
       - run: uv run pyright
       - run: uv run aios specs check
+      - name: The docs' reference pages match the code, and the site builds
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: |
+          uv run aios docs reference --check
+          uv run mkdocs build --strict
+      - name: Schemas still read what the base branch wrote (FR-EVT-10)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          git worktree add ../base FETCH_HEAD
+          uv run aios specs compat --against ../base/specs
 
   console:
     name: Console
@@ -62,6 +76,24 @@ jobs:
           cache-dependency-path: console/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  typescript-client:
+    name: TypeScript client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+      - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -91,6 +123,11 @@ jobs:
         run: uv run pytest --cov --cov-report=term --cov-fail-under=80
       - name: Red-team corpus (blocked or escalated, every case)
         run: uv run pytest tests/redteam -m redteam
+      - name: AI Researcher eval gate (FR-OBS-07, M3 exit 3)
+        run: >-
+          uv run aios eval run apps/ai-researcher/evals/quality.yaml
+          --app-dir apps/ai-researcher --cassettes tests/cassettes/ai-researcher
+          --baseline apps/ai-researcher/evals/baseline.json
 
   postgres:
     name: PostgreSQL fabric (conformance, acceptance, NFR-01)

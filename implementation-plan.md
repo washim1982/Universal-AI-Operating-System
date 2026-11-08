@@ -100,6 +100,12 @@ aios/
 | 4 | Scale-out, Kubernetes, interop | 8 | 5 Apr – 28 May 2027 | **M4 "v1.0 candidate"** — AI Developer |
 | 5 | Enterprise runtime | ongoing | from 31 May 2027 | **M5** First enterprise customer in production |
 
+*Actual (7 Nov 2026):* the code of Phases 0 to 3 is built, months ahead of these dates. No
+milestone from M1 to M3 is signed off: what is left of each is CI on GitHub, the owner's reviews,
+the independent security review, or design partners, not code. Phase 4 hasn't started. The dates
+above are the original estimate for a team of four, not re-estimated; the
+[Phase 3 review](docs/reviews/phase-3.md#roadmap-re-estimated) lists what is left before Phase 4.
+
 ```mermaid
 gantt
     title AIOS roadmap (team of 4, estimates ±30%)
@@ -219,7 +225,11 @@ Each work package (WP) lists the requirement ids it **covers**. Parentheses show
 6. **Loop test:** two agents set up to trigger each other stop at the hop limit with `budget.exceeded`.
 7. Line coverage is ≥ 80% on `fabric` and `workflow`, and the conformance suite passes for both bus adapters.
 
-**M1 status (30 Oct 2026): exit criteria met locally; pending the first CI run of the PostgreSQL job.**
+**M1 status (7 Nov 2026): exit criteria met locally. CI's PostgreSQL job has run on GitHub and failed since 30 Oct, on the kill test for exit 2. The test asserted more than exit 2 promises, and is fixed in the working tree; M1 closes once that job passes on a push ([Phase 3 review](docs/reviews/phase-3.md), finding 1).**
+That job has since run on GitHub, and failed on every push from 30 Oct 2026. Its one failure was the
+kill test, which asserted that no call at all is repeated. A call still in flight when the worker dies
+is repeated if its answer wasn't stored yet, which this criterion allows. The test now checks what the
+criterion promises ([Phase 3 review](docs/reviews/phase-3.md), finding 1).
 
 | # | Evidence |
 |---|---|
@@ -244,7 +254,8 @@ uses; signals, queries, pause and resume (FR-WF-08, 11), which Human OS uses; an
 credentials in the tool pipeline (FR-TOOL-05, 06), which the refund tools use. Two limits carried
 into Phase 2. An App had no route for binding its own native tools, which WP 2.7 met with
 `AIOS_TOOL_PROVIDERS`; a manifest route is still to come. And MCP connections take no credentials
-yet, which a real Zendesk server will need.
+yet, which a real Zendesk server will need. Tool calling in the Model Kernel (FR-MOD-01) was done
+later, in WP 3.6, because the framework adapters need it.
 
 ### Phase 2 — Memory, security, human-in-the-loop (8 weeks) → M2 "Safe by Default" (MVP)
 
@@ -342,7 +353,7 @@ yet, which a real Zendesk server will need.
 - **Trace Explorer** built with React Flow: the run DAG with per-node prompts, outputs, tokens, cost, latency, policy decisions and approvals.
 - Cost explorer and budgets; policy viewer and simulator; memory browser; event stream and dead-letter views.
 
-*Progress (2 Nov 2026):* built and verified in a real browser against an API and a worker on PostgreSQL, for five roles: the Trace Explorer (React Flow), run search with a live view and run controls, Apps with consent and configuration, agents with the kill switch, costs and budgets, a policy viewer and simulator, a memory browser with audited corrections, and the event stream and dead letters. Still open: replay and fork (WP 3.3) and approving with changes (WP 3.5). The check found a deadlock when processes set up the database at the same moment, outside this work package; it is recorded in the security review.
+*Progress (2 Nov 2026):* built and verified in a real browser against an API and a worker on PostgreSQL, for five roles: the Trace Explorer (React Flow), run search with a live view and run controls, Apps with consent and configuration, agents with the kill switch, costs and budgets, a policy viewer and simulator, a memory browser with audited corrections, and the event stream and dead letters. Still open: replay and fork (WP 3.3) and approving with changes (WP 3.5). The check found a deadlock when processes set up the database at the same moment, outside this work package. It is fixed: each component's setup runs once per change, under one lock per schema (ADR-020).
 
 **WP 3.3 — Replay and fork.** *Owner: tech lead.*
 **Covers:** FR-OBS-04; FR-WF-11 (retry from step, fork from step)
@@ -357,12 +368,32 @@ yet, which a real Zendesk server will need.
 - `aios eval` plus a CI gate that blocks regressions; sampled online evaluation of production runs.
 - Retrieval metrics (recall@k, MRR, groundedness) for Memory OS.
 
+*Progress (5 Nov 2026):* built and verified on memory and PostgreSQL (ADR-022). Suites with rule, schema, model, grounding and human graders; experiments that run each case as a run of the App, kept as events and resumed after a crash; judges that are the App's own governed agent; comparison across versions; a gate that is `aios eval run`'s exit code, in CI for the AI Researcher; online grading of a sample of production runs; recall@k, MRR and groundedness for retrieval. M3 exit 3 holds on recordings: a recording that cites a blog instead of the spec is blocked. Still open: the AI Researcher's recording predates five of its prompts, so its suite warns about drift instead of failing on it until it is recorded again with a model; groundedness is lexical; the console has no experiments page.
+
 **WP 3.5 — Human OS v2.** *Owner: full-stack.*
 **Covers:** FR-HUM-04 (groups and quorum), 05 (reminders and escalation), 06, 07 (Slack, Microsoft Teams, email), 08, 09; FR-TOOL-07 (dry-run previews)
 - n-of-m quorum, escalation chains, approve-with-edits re-checked by policy.
 - Slack, Teams and email channels with signed action links.
 - Humans registered as capability providers (`human.task.*`); feedback capture.
 - Dry-run previews shown in approval requests.
+
+*Progress (6 Nov 2026):* built and verified on memory and PostgreSQL, through the API, the CLI and
+in a real browser (ADR-023). Quorums from groups (the identity provider's or the tenant's), with
+each person counted once; reminders and escalation steps, acted on once by concurrent sweeps;
+approving a changed action, which is checked against the tool's schema and the policies again and
+refused if it needs more approval; a native tool's dry run in the request. Slack, Teams and email
+give each approver their own signed links, which open a confirmation page; M3 exit 5 holds against
+a stand-in Slack. Steps can be people's work (`spec.humans`, `human.task.*`, `aios tasks`, the
+console's Tasks). Feedback on runs and steps is on the run, can be kept in the App's memory, and
+corrections of whole runs become evaluation cases. The browser check found that a one-line field
+dropped a value's line breaks, which turned approving unchanged into a change; multi-line values
+are now edited in a text area. Running the testing guide in Windows PowerShell 5.1 found that it
+drops the quotes inside JSON arguments, so `aios tasks complete` and `aios feedback give` also take
+values field by field (`--field`, `--correct`). Thirty deliberate breaks are each caught by a test.
+Still open: an approval from a real Slack workspace is a manual
+step (Y8 in the testing guide); a group the identity provider asserts can't be listed, so its
+members are told only if the tenant's directory names them; mobile push is Phase 5; the console
+has no page to manage groups.
 
 **WP 3.6 — Developer experience.** *Owner: full-stack with tech lead.*
 **Covers:** FR-CP-03 (P1 commands), 04 (TypeScript), 06; FR-WF-01 (YAML authoring); FR-EVT-10 (schema registry service); FR-AGT-02 (framework adapters); FR-INT-04 (LangGraph, OpenAI Agents SDK)
@@ -371,10 +402,32 @@ yet, which a real Zendesk server will need.
 - Adapters that run LangGraph and OpenAI Agents SDK agents as AIOS agents.
 - Docs site: quickstart, concepts, guides, API reference.
 
+*Progress (7 Nov 2026):* built and verified (ADR-024). The Model Kernel now does tool calling on
+every provider, recorded for replay, which FR-MOD-01 had left open; the adapters needed it. LangGraph
+graphs and OpenAI Agents SDK agents run as AIOS agents, their model calls through the Model Kernel
+and their AIOS tools through Tool OS. Six App templates, each with a test that passes as made, plus
+`aios init agent` and `aios init tool`; `aios describe`, `aios validate`; workflows in Python, YAML
+or JSON as one IR; the schema registry at `/v1/schemas`, and `aios specs compat` in CI against the
+base branch; the TypeScript client `@aios/client`; and a docs site (MkDocs Material) with a
+quickstart, concepts, guides and reference pages generated from the code. Still open: streaming
+model output; container and A2A agents; the frameworks of FR-INT-04 P2; M3 exit 1 needs design
+partners to try it.
+
 **WP 3.7 — Inbound interoperability.** *Owner: AI eng.*
 **Covers:** FR-INT-01 (MCP server), 03
 - Expose Apps and agents as an MCP server for IDEs and desktop assistants.
 - OpenAI-compatible chat endpoint per App.
+
+*Progress (7 Nov 2026):* built and verified (ADR-025). An OpenAI-compatible endpoint at
+`/openai/v1`: the Apps a caller can chat with are its models, and a chat completion is a run of the
+App for the caller, with the whole conversation, answered in OpenAI's shape, streamed or not. An
+MCP server at `/mcp` (Streamable HTTP, stateless, the 2026 and the classic handshake) offers each
+such App as a tool `ask-<app>`, `run-status`, and each App as a resource. Both wait for the answer
+up to `AIOS_ANSWER_WAIT`; a run that waits for a person, or works longer, says so and goes on, and
+no tool decides an approval. Each run records the door it came through (`via`). Verified with the
+real OpenAI and MCP SDKs, in process and over HTTP. Still open: agents exposed on their own, MCP
+prompts, token streaming; on the development machine, Norton rewrites the 2026 handshake's replies,
+so the classic one was used over HTTP there.
 
 **Exit criteria (M3 "Developer Preview"):**
 1. Three design-partner developers each build and install a new App from a template, using only the docs, within one day.
@@ -384,9 +437,39 @@ yet, which a real Zendesk server will need.
 5. An approval is completed from Slack with a signed action link.
 6. A LangGraph agent runs as an AIOS agent with full tracing and policy enforcement.
 
+*Standing (7 Nov 2026, [Phase 3 review](docs/reviews/phase-3.md)):* 2 to 6 pass in automated tests,
+on recordings and stand-in models; 5 is against a stand-in Slack, and 3 warns that its recording is
+stale. The review added the tests for 2 and 6 (`tests/e2e/test_developer_preview.py`), and they
+found that a task waiting for a person left a hole in its trace, now fixed. 1 needs design
+partners. Not closed: CI's PostgreSQL job is red on GitHub until its fix (the kill test) is
+pushed, nothing after `e743f97` is committed, and ADR-011 and ADR-013 to ADR-025 await the owner's
+review. The threat model was brought up to date and ADR-013 and ADR-014 were drafted after the
+review.
+
 ### Phase 4 — Scale-out, Kubernetes and interop (8 weeks) → M4 "v1.0 candidate"
 
 **Goal:** production-grade distribution, scale and isolation. Items marked † are stretch goals and move to Phase 5 if the phase runs long.
+
+*Readiness (7 Nov 2026):* not started. The Phase 3 review recommends no Phase 4 code until CI is
+green, the threat model is current, and ADR-013 and ADR-014 are drafted. The threat model and the
+two ADRs are done. CI waits for the working tree to be committed and pushed. WP 4.1 builds on
+ADR-013, and WP 4.2 and WP 4.4 on ADR-014; both ADRs await the owner's decision.
+
+Carried over from Phase 3, with the work package each fits best (a proposal, for the owner):
+- Agent code pinned per App version (FR-APP-04), and forking with an older agent version (WP 3.3):
+  both need agent code out of the worker's process, ADR-014's runners, in WP 4.2.
+- Declarative `Tool`, `ToolProvider`, `ModelProvider`, `MemoryStore` and `Tenant` resources
+  (FR-CP-01): nothing blocks them; with the operator's CRDs in WP 4.3.
+- Agents exposed through MCP on their own, and MCP prompts and resources as a client (FR-INT-01):
+  with the interop work in WP 4.5.
+- Streaming model output and token streaming (FR-EVT-17, ADR-010): with WP 4.6.
+- The console's experiments and groups pages (WP 3.4, WP 3.5): no work package yet.
+- Red-team cases for a hostile handler, which ADR-014 proposes: with the sandbox-escape suite in
+  WP 4.4, named in the threat model.
+
+Before design partners try it (M3 exit 1), whatever the phase: record the reference apps with a
+real model, set the AI Researcher's suite to `onDrift: fail`, and set up the nightly live contract
+tests (§8).
 
 **WP 4.1 — NATS JetStream fabric.** *Owner: tech lead.*
 **Covers:** FR-EVT-13, 14, 15 (NATS JetStream)
@@ -443,6 +526,9 @@ yet, which a real Zendesk server will need.
 ### Phase 5 — Enterprise runtime (ongoing, from week 31) → M5
 
 **Goal:** what regulated buyers need in order to sign, plus the remaining P2 scope. Prioritize this backlog with design partners and pilot customers.
+
+*Readiness (7 Nov 2026):* not started, and not yet ordered: no design partner has seen AIOS (M3
+exit 1). Signing App bundles comes before the public marketplace (ADR-015).
 
 **Covers:** FR-APP-06 (public marketplace), 08; FR-EVT-15 (Kafka/Redpanda, on demand), 16 (intent matching); FR-AGT-07 (virtual actors); FR-WF-01 (visual designer), 14; FR-MEM-11 (Weaviate, Pinecone, Azure AI Search, graph memory); FR-MOD-11; FR-TOOL-04 (Kubernetes, AWS, Azure connectors); FR-SEC-02 (SAML, SCIM), 12 (BYOK); FR-HUM-07 (mobile push); FR-UI-08; FR-INT-04 (CrewAI, Google ADK, Microsoft Agent Framework)
 
@@ -505,6 +591,9 @@ Keep the phase order and the exit criteria, and cut scope:
 
 ## 10. Risk register
 
+Re-estimated at each milestone review; the latest is in the
+[Phase 3 review](docs/reviews/phase-3.md#risk-register-re-estimated), which adds R13 and R14.
+
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | R1 | Scope creep across ten components means nothing ships | High | High | Vertical slices; reference apps decide scope; P0/P1/P2 priorities enforced at sprint planning |
@@ -536,10 +625,22 @@ Keep the phase order and the exit criteria, and cut scope:
 | ADR-010 | Token streaming outside the fabric (SSE / WebSocket) | Phase 0 |
 | ADR-011 | Identity: OIDC provider and agent identity format (SPIFFE-compatible) | End of Phase 1 (proposed 1 Nov 2026) |
 | ADR-012 | License and open-core boundary | Phase 0 |
-| ADR-013 | NATS topology and system of record (PostgreSQL outbox → JetStream relay) | During Phase 3 |
-| ADR-014 | Agent isolation levels and sandbox technology | During Phase 3 |
+| [ADR-013](docs/adr/ADR-013-nats-topology.md) | NATS topology and system of record (PostgreSQL outbox → JetStream relay) | During Phase 3 (proposed 7 Nov 2026, after the Phase 3 review) |
+| [ADR-014](docs/adr/ADR-014-agent-isolation.md) | Agent isolation levels and sandbox technology | During Phase 3 (proposed 7 Nov 2026, after the Phase 3 review) |
 | ADR-015 | App packaging format (OCI artifact) and registry | During Phase 2 (proposed 2 Nov 2026) |
+| ADR-016 | Approvals: a task stops, and runs again once a person answers | Phase 2 (proposed 1 Nov 2026) |
+| ADR-017 | Taint on the envelope; a person's own request doesn't set it | Phase 2 (proposed 1 Nov 2026) |
+| ADR-018 | Budgets checked before a call, against a ledger paid with the event | Phase 2 (proposed 1 Nov 2026) |
 | ADR-019 | Installation, consent and the reconciler | Phase 3 (proposed 2 Nov 2026) |
+| ADR-020 | Schema setup once per change, under one lock per schema | Phase 3 (proposed 2 Nov 2026) |
+| ADR-021 | Replay, fork and retry as new runs that answer from their source's record | Phase 3 (proposed 2 Nov 2026) |
+| ADR-022 | Evaluations as runs of the App, graded, gated and recorded as events | Phase 3 (proposed 5 Nov 2026) |
+| ADR-023 | People in the loop: quorums, edits, signed links, work and feedback | Phase 3 (proposed 6 Nov 2026) |
+| ADR-024 | Tool calling, framework adapters, and the developer surface | Phase 3 (proposed 7 Nov 2026) |
+| ADR-025 | Apps for OpenAI clients and MCP clients | Phase 3 (proposed 7 Nov 2026) |
+
+ADR-011 and ADR-013 to ADR-025 await the owner's review. Phase 4 builds directly on ADR-013 and
+ADR-014, so those two come first.
 
 ## 12. Sprint 1 backlog (Phase 0)
 

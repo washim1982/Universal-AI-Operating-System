@@ -106,6 +106,7 @@ class OidcSettings:
     audience: str
     tenant_claim: str = "aios_tenant"
     roles_claim: str = "roles"
+    groups_claim: str = "groups"
     """A claim, or a dotted path such as ``realm_access.roles`` (Keycloak's realm roles)."""
 
 
@@ -151,7 +152,13 @@ class Oidc(Authenticator):
             else frozenset[str]()
         )
         await self.store.set_roles(tenant, principal, granted)
-        return Identity(principal, tenant, granted)
+        listed = self._claim(claims, self.settings.groups_claim)
+        groups = (
+            frozenset(group for group in cast(list[Any], listed) if isinstance(group, str))
+            if isinstance(listed, list)
+            else frozenset[str]()
+        )
+        return Identity(principal, tenant, granted, groups)
 
     @staticmethod
     def _claim(claims: Mapping[str, Any], path: str) -> Any:

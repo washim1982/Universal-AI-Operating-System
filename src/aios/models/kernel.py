@@ -40,6 +40,7 @@ from aios.core.catalog import (
     ErrorInfo,
     ModelCallCompleted,
     ModelCallFailed,
+    ModelToolCall,
     Usage,
 )
 from aios.core.envelope import DataClass, Event
@@ -263,6 +264,7 @@ class ModelKernel(ModelGateway):
                 latency_ms=call.latency_ms,
                 stop_reason=call.stop_reason,
                 replayed=True,
+                tool_calls=call.tool_calls,
             )
         error = ReplayDivergedError(f"{key}: the run being replayed asked nothing like this here")
         await self._failed(site, request, error, [])
@@ -449,7 +451,9 @@ class ModelKernel(ModelGateway):
         cassette = self.cassette
         key = site.key("model")
         if cassette is not None and cassette.replaying:
-            recorded = cassette.play(key, "model", request_hash(request))
+            hashed = request_hash(request)
+            drifted = cassette.drifted(key, hashed)
+            recorded = cassette.play(key, "model", hashed)
             return Completion(
                 text=str(recorded["text"]),
                 input_tokens=int(recorded.get("input_tokens", 0)),
@@ -459,6 +463,11 @@ class ModelKernel(ModelGateway):
                 latency_ms=float(recorded.get("latency_ms", 0.0)),
                 cache_read_tokens=int(recorded.get("cache_read_tokens", 0)),
                 cache_write_tokens=int(recorded.get("cache_write_tokens", 0)),
+                drifted=drifted,
+                tool_calls=tuple(
+                    ModelToolCall.model_validate(call)
+                    for call in cast(list[JsonValue], recorded.get("tool_calls") or [])
+                ),
             )
         if entry.placeholder:
             raise ModelError(f"{entry.id} is a placeholder; fill it in the model registry")
@@ -477,6 +486,7 @@ class ModelKernel(ModelGateway):
                     "stop_reason": completion.stop_reason,
                     "latency_ms": round(completion.latency_ms, 1),
                     "model": completion.model,
+                    **_recorded_calls(completion),
                 },
             )
         return completion
@@ -536,6 +546,8 @@ class ModelKernel(ModelGateway):
             output=parsed,
             fallback_from=served.failures,
             downgraded=served.downgraded,
+            drifted=completion.drifted,
+            tool_calls=list(completion.tool_calls),
         )
         await self._charge(site, payload)
         return ModelResponse(
@@ -546,6 +558,7 @@ class ModelKernel(ModelGateway):
             usage=usage,
             latency_ms=completion.latency_ms,
             stop_reason=completion.stop_reason,
+            tool_calls=list(completion.tool_calls),
         )
 
     async def _failed(
@@ -613,8 +626,17 @@ class ModelKernel(ModelGateway):
                     latency_ms=call.latency_ms,
                     stop_reason=call.stop_reason,
                     replayed=True,
+                    tool_calls=call.tool_calls,
                 )
         return None
+
+
+def _recorded_calls(completion: Completion) -> dict[str, JsonValue]:
+    """A completion's tool calls, for a cassette. With none, nothing is added, so older
+    recordings stay as they are."""
+    if not completion.tool_calls:
+        return {}
+    return {"tool_calls": [call.model_dump(mode="json") for call in completion.tool_calls]}
 
 
 def _limits(budgets: ModelBudgets, app: AppBudgets | None) -> dict[BudgetLevel, float]:

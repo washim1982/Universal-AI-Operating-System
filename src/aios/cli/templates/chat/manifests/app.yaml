@@ -1,0 +1,28 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: aios-template-app, version: 0.1.0}
+spec:
+  description: "Aios Template App, an AIOS App."
+  entrypoints:
+    - {type: chat, workflow: answer}
+  agents: [assistant-agent]
+  workflows: [answer]
+  modelPolicy: default
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: assistant-agent, version: 0.1.0}
+spec:
+  description: Answers the user's message.
+  runtime: {type: python, entrypoint: "aios_template_app.agents:answer"}
+  capabilities: [{name: answering}]
+  model: {task: reasoning}
+  limits: {maxSteps: 5, maxCostUSD: 0.50, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${answer.output}"
+  steps:
+    - {id: answer, type: task, capability: answering, input: {message: "${input.message}"}}

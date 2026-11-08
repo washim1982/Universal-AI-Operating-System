@@ -1,0 +1,29 @@
+# A small App for trying evaluation (WP 3.4), with no model. Every run is graded online as it
+# finishes, and a message that says "slow" takes 45 seconds: longer than a worker's lease.
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: greeter, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: greet}]
+  agents: [greeter-agent]
+  workflows: [greet]
+  evaluation:
+    online:
+      sample: 1.0
+      graders:
+        - {name: says-hello, type: contains, path: reply, value: hello}
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: greeter-agent, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "greeter_app.agents:greet"}
+  capabilities: [{name: greetings.greet}]
+  limits: {timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: greet, version: 0.1.0}
+spec:
+  steps:
+    - {id: greet, type: task, capability: greetings.greet, input: {message: "${input.message}"}}

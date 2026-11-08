@@ -289,7 +289,7 @@
             }
           ],
           "default": null,
-          "description": "python: module.path:function",
+          "description": "python: module.path:function; adapter:<framework>: module.path:object",
           "title": "Entrypoint"
         },
         "image": {

@@ -24,6 +24,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    JsonValue,
     PlainSerializer,
     StringConstraints,
     TypeAdapter,
@@ -35,7 +36,14 @@ from pydantic.alias_generators import to_camel
 from aios.core.catalog import Risk
 from aios.core.envelope import DataClass
 from aios.core.memory import MemoryScope
-from aios.core.policy import MEMORY_ACTIONS, OnTimeout, PolicyAction, SideEffect
+from aios.core.policy import (
+    MEMORY_ACTIONS,
+    ApprovalTerms,
+    Escalation,
+    OnTimeout,
+    PolicyAction,
+    SideEffect,
+)
 from aios.core.schedule import Cron
 from aios.core.topics import (
     DNS_LABEL_PATTERN,
@@ -157,21 +165,31 @@ class Metadata(_Model):
 
 class Runtime(_Model):
     type: Annotated[str, StringConstraints(pattern=r"^(python|container|a2a|adapter:[a-z0-9-]+)$")]
-    entrypoint: str | None = Field(default=None, description="python: module.path:function")
+    entrypoint: str | None = Field(
+        default=None,
+        description="python: module.path:function; adapter:<framework>: module.path:object",
+    )
     image: str | None = Field(default=None, description="container: OCI image reference")
     url: str | None = Field(default=None, description="a2a: the remote agent's base URL")
 
     @model_validator(mode="after")
     def _check_type_fields(self) -> Self:
-        required = {"python": "entrypoint", "container": "image", "a2a": "url"}.get(self.type)
+        kind = "adapter" if self.type.startswith("adapter:") else self.type
+        required = {
+            "python": "entrypoint",
+            "adapter": "entrypoint",
+            "container": "image",
+            "a2a": "url",
+        }.get(kind)
         if required and getattr(self, required) is None:
             raise ValueError(f"runtime type {self.type!r} requires {required!r}")
         if (
-            self.type == "python"
+            kind in ("python", "adapter")
             and self.entrypoint
             and not re.fullmatch(r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", self.entrypoint)
         ):
-            raise ValueError(f"python entrypoint must be 'module.path:function': {self.entrypoint}")
+            target = "function" if kind == "python" else "object"
+            raise ValueError(f"{kind} entrypoint must be 'module.path:{target}': {self.entrypoint}")
         return self
 
 
@@ -300,6 +318,188 @@ class ToolRef(_Model):
         return self
 
 
+# --------------------------------------------------------------------------- Evaluation
+
+OutputPath = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$")]
+"""A dotted path into a run's output, such as ``sources`` or ``sections.0.heading``."""
+
+
+class _Grader(_Model):
+    name: Name
+    path: OutputPath | None = Field(
+        default=None, description="Where in the run's output to look; all of it if left out"
+    )
+    weight: float = Field(default=1.0, gt=0, description="Its share of the case's score")
+
+
+class ExactGrader(_Grader):
+    """Passes when the output equals ``value``, or the case's ``expected`` when there is none."""
+
+    type: Literal["exact"]
+    value: JsonValue = None
+
+
+class ContainsGrader(_Grader):
+    """Passes when the output's text contains ``value``."""
+
+    type: Literal["contains"]
+    value: str = Field(min_length=1)
+    ignore_case: bool = True
+
+
+class RegexGrader(_Grader):
+    """Passes when the output's text matches ``pattern`` somewhere."""
+
+    type: Literal["regex"]
+    pattern: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _compiles(self) -> Self:
+        try:
+            re.compile(self.pattern)
+        except re.error as exc:
+            raise ValueError(f"grader {self.name}: {exc}") from exc
+        return self
+
+
+class SchemaGrader(_Grader):
+    """Passes when the output is valid against a JSON Schema."""
+
+    type: Literal["schema"]
+    json_schema: dict[str, JsonValue] = Field(alias="schema")
+
+
+class JudgeGrader(_Grader):
+    """A model scores the output against a rubric, from 0 to 10. Its call is governed like any."""
+
+    type: Literal["judge"]
+    rubric: str = Field(min_length=1)
+    task: str = Field(default="evaluation", description="Routing hint for the model policy")
+    pass_at: float = Field(default=0.7, ge=0, le=1)
+
+
+class GroundedGrader(_Grader):
+    """The share of the answer's sentences that what the run read supports."""
+
+    type: Literal["grounded"]
+    pass_at: float = Field(default=0.7, ge=0, le=1)
+
+
+class HumanGrader(_Grader):
+    """A person grades the case, later. The experiment waits for them."""
+
+    type: Literal["human"]
+    reviewers: list[Selector] = Field(min_length=1)
+    question: str = ""
+
+
+Grader = Annotated[
+    ExactGrader
+    | ContainsGrader
+    | RegexGrader
+    | SchemaGrader
+    | JudgeGrader
+    | GroundedGrader
+    | HumanGrader,
+    Field(discriminator="type"),
+]
+
+
+class EvalCase(_Model):
+    id: Name
+    input: JsonValue = Field(default=None, description="What the App is asked")
+    expected: JsonValue = Field(default=None, description="What a right answer looks like")
+    query: str | None = Field(default=None, description="Retrieval: what memory is searched for")
+    relevant: list[str] = Field(
+        default_factory=list[str],
+        description="Retrieval: the documents a good search finds (their names or addresses)",
+    )
+    answer: str | None = Field(
+        default=None, description="Retrieval: an answer whose grounding in what was found is scored"
+    )
+    tags: list[Name] = Field(default_factory=list[str])
+
+
+class RetrievalEval(_Model):
+    """Memory OS retrieval quality (FR-MEM-12): recall@k, MRR and groundedness."""
+
+    scopes: list[MemoryScope] = Field(default_factory=lambda: ["app"])
+    k: int = Field(default=5, ge=1, le=50)
+
+
+class EvalGate(_Model):
+    """When an experiment blocks: CI fails and a deploy stops (FR-OBS-07)."""
+
+    min_score: float = Field(default=0.0, ge=0, le=1)
+    max_regression: float = Field(
+        default=0.0, ge=0, le=1, description="How far below the baseline a score may fall"
+    )
+    on_drift: Literal["fail", "warn"] = Field(
+        default="fail",
+        description="A model answer recorded for another request: the recording is stale",
+    )
+
+
+class EvaluationSpec(_Model):
+    app: Name | None = Field(default=None, description="The App; given on the command otherwise")
+    cases: list[EvalCase] = Field(min_length=1)
+    graders: list[Grader] = Field(default_factory=list[Grader])
+    retrieval: RetrievalEval | None = None
+    gate: EvalGate = Field(default_factory=EvalGate)
+    timeout: Duration | None = Field(default=None, description="Per case; 10 minutes if not set")
+
+    @model_validator(mode="after")
+    def _well_formed(self) -> Self:
+        ids = [case.id for case in self.cases]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two cases share an id")
+        names = [grader.name for grader in self.graders]
+        if len(set(names)) != len(names):
+            raise ValueError("two graders share a name")
+        if self.retrieval is None and not self.graders:
+            raise ValueError("an evaluation needs graders, or retrieval")
+        if self.retrieval is not None and self.graders:
+            raise ValueError("a retrieval evaluation is graded by its metrics: leave graders out")
+        for case in self.cases:
+            if self.retrieval is not None and (case.query is None or not case.relevant):
+                raise ValueError(f"case {case.id}: a retrieval case needs a query and relevant")
+            if self.retrieval is None and case.input is None:
+                raise ValueError(f"case {case.id}: needs an input")
+        return self
+
+
+class EvaluationManifest(_Model):
+    """A golden dataset with its graders and gate (FR-OBS-07, FR-MEM-12). Run, not installed."""
+
+    model_config = ConfigDict(title="AIOS Evaluation manifest (aios/v1alpha1)")
+
+    api_version: Literal["aios/v1alpha1"] = API_VERSION
+    kind: Literal["Evaluation"] = "Evaluation"
+    metadata: Metadata
+    spec: EvaluationSpec
+
+
+class OnlineEvaluation(_Model):
+    """Grade a sample of production runs as they finish. Nobody's answer is known, so only
+    graders that need none: schema, contains, regex, exact with a value, judge and grounded."""
+
+    sample: float = Field(gt=0, le=1, description="The share of runs graded")
+    graders: list[Grader] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _needs_no_answer(self) -> Self:
+        for grader in self.graders:
+            if isinstance(grader, HumanGrader):
+                raise ValueError(f"grader {grader.name}: online evaluation asks no person")
+            if isinstance(grader, ExactGrader) and grader.value is None:
+                raise ValueError(f"grader {grader.name}: online, exact needs a value")
+        return self
+
+
+class AppEvaluation(_Model):
+    online: OnlineEvaluation | None = None
+
+
 class KnowledgeSource(_Model):
     source: str = Field(min_length=1)
     scope: MemoryScope = "app"
@@ -338,6 +538,20 @@ class AppBudgets(_Model):
     monthly_usd: float | None = Field(default=None, ge=0, alias="monthlyUSD")
 
 
+class HumanCapability(_Model):
+    """People who provide a capability (FR-HUM-08). A workflow step asks for it as it would ask an
+    agent, and the work reaches any one of the assignees, who answer it in the console or CLI."""
+
+    capability: CapabilityName
+    assignees: list[str] = Field(
+        min_length=1, description="Principals, role:<name> or group:<name>: any one of them"
+    )
+    description: str = Field(default="", description="What to do, as the assignees will read it")
+    output: dict[str, Any] | None = Field(
+        default=None, description="A JSON Schema the answer must match"
+    )
+
+
 class AppSpec(_Model):
     description: str = ""
     entrypoints: list[Entrypoint] = Field(min_length=1)
@@ -351,6 +565,17 @@ class AppSpec(_Model):
     model_policy: Name = "default"
     config: AppConfig = Field(default_factory=AppConfig)
     budgets: AppBudgets = Field(default_factory=AppBudgets)
+    evaluation: AppEvaluation = Field(default_factory=AppEvaluation)
+    humans: list[HumanCapability] = Field(
+        default_factory=list[HumanCapability], description="Capabilities people provide"
+    )
+
+    @model_validator(mode="after")
+    def _a_capability_is_peoples_once(self) -> Self:
+        named = [h.capability for h in self.humans]
+        if len(set(named)) != len(named):
+            raise ValueError("spec.humans names a capability twice")
+        return self
 
     @model_validator(mode="after")
     def _entrypoints_use_declared_workflows(self) -> Self:
@@ -420,12 +645,24 @@ class DynamicStep(_StepBase):
     max_parallel: int = Field(default=5, ge=1)
 
 
+class EscalationSpec(_Model):
+    """After ``after`` with no answer, ``approvers`` are asked as well (FR-HUM-05)."""
+
+    after: Duration
+    approvers: list[Selector] = Field(min_length=1)
+
+
 class ApprovalStep(_StepBase):
     type: Literal["approval"]
     approvers: list[Selector] = Field(min_length=1)
     on_timeout: OnTimeout = "deny"
     summary: str | None = Field(default=None, description="What the approver is asked, in a line")
     risk: Risk = "medium"
+    quorum: int = Field(default=1, ge=1, description="How many different approvers must agree")
+    remind_every: Duration | None = Field(default=None, description="Remind approvers this often")
+    escalate: list[EscalationSpec] = Field(
+        default_factory=list[EscalationSpec], description="Who else is asked, and when"
+    )
 
 
 class ToolStep(_StepBase):
@@ -611,6 +848,20 @@ class ApprovalRule(PolicyRule):
     timeout: Duration | None = Field(default=None, description="How long a person has to answer")
     on_timeout: OnTimeout = Field(
         default="deny", description="Only a rule can let an action go ahead unanswered"
+    )
+    quorum: int = Field(default=1, ge=1, description="How many different approvers must agree")
+    remind_every: Duration | None = Field(default=None, description="Remind approvers this often")
+    escalate: list[EscalationSpec] = Field(
+        default_factory=list[EscalationSpec], description="Who else is asked, and when"
+    )
+
+
+def approval_terms(spec: ApprovalRule | ApprovalStep) -> ApprovalTerms:
+    """A rule's or a step's quorum, reminders and escalations."""
+    return ApprovalTerms(
+        spec.quorum,
+        spec.remind_every,
+        tuple(Escalation(e.after, tuple(e.approvers)) for e in spec.escalate),
     )
 
 
@@ -803,20 +1054,39 @@ def parse_manifest(document: dict[str, Any]) -> AnyManifest:
     return _MANIFEST.validate_python(document)
 
 
+def load_evaluation(source: str | Path) -> EvaluationManifest:
+    """An Evaluation manifest from a YAML file or string. Suites are run, not installed."""
+    text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
+    document = yaml.load(text, Loader=_Yaml12Loader)  # noqa: S506 - a SafeLoader subclass
+    if not isinstance(document, dict):
+        raise ValueError("an evaluation is one YAML mapping")
+    return EvaluationManifest.model_validate(document)
+
+
+MANIFEST_FILES = ("*.yaml", "*.yml", "*.json")
+"""What an App folder's ``manifests/`` and ``policies/`` are read from (FR-WF-01: YAML or JSON)."""
+
+
+def manifest_files(folder: Path) -> list[Path]:
+    return sorted({file for pattern in MANIFEST_FILES for file in folder.glob(pattern)})
+
+
 def load_manifests(
     source: str | Path, *, config: Mapping[str, Any] | None = None
 ) -> list[AnyManifest]:
-    """Load every manifest in a YAML file or string (multi-document YAML is supported).
+    """Load every manifest in a YAML or JSON file or string. Multi-document YAML is supported, and
+    so is a JSON list of manifests.
 
     With ``config``, ``${config.<key>}`` placeholders are resolved first (see
     :func:`interpolate_config`).
     """
     text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
-    documents: list[Any] = [
-        doc
-        for doc in yaml.load_all(text, Loader=_Yaml12Loader)  # a SafeLoader subclass
-        if doc is not None
-    ]
+    documents: list[Any] = []
+    for doc in yaml.load_all(text, Loader=_Yaml12Loader):  # a SafeLoader subclass; JSON is YAML
+        if isinstance(doc, list):
+            documents += cast(list[Any], doc)
+        elif doc is not None:
+            documents.append(doc)
     for doc in documents:
         if not isinstance(doc, dict):
             raise ValueError("each YAML document must be a mapping")

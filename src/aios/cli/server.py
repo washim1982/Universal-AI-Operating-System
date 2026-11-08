@@ -20,12 +20,20 @@ from typing import Any, Literal
 
 import uvicorn
 
-from aios.api import create_app
+from aios.api import ANSWER_WAIT_SECONDS, create_app
 from aios.controlplane import Runtime, load_app
 from aios.core.cassettes import Cassette, CassetteMode
 from aios.core.identity import Authenticator
 from aios.fabric import EventBus, InMemoryEventBus
-from aios.human import ApprovalWebhook
+from aios.human import (
+    ActionLinks,
+    ApprovalWebhook,
+    Channel,
+    EmailChannel,
+    SlackChannel,
+    Smtp,
+    TeamsChannel,
+)
 from aios.models import ModelRegistry
 from aios.observability import EventMetrics, EventTracer, configure_logging
 from aios.security.identity import ApiKeys, Credentials, Oidc, OidcSettings, is_loopback
@@ -83,10 +91,72 @@ def approval_webhook() -> ApprovalWebhook | None:
     return ApprovalWebhook(url, secret)
 
 
+def approval_channels() -> tuple[list[Channel], ActionLinks | None]:
+    """Slack, Teams and email, each when its settings are there (FR-HUM-07). Any of them needs
+    ``AIOS_PUBLIC_URL``, where people reach this server, and ``AIOS_ACTION_LINK_SECRET``."""
+    channels: list[Channel] = []
+    if token := os.environ.get("AIOS_SLACK_BOT_TOKEN"):
+        api = os.environ.get("AIOS_SLACK_API_URL", "https://slack.com/api")
+        channels.append(SlackChannel(token, api=api))
+    if url := os.environ.get("AIOS_TEAMS_WORKFLOW_URL"):
+        channels.append(TeamsChannel(url))
+    if host := os.environ.get("AIOS_SMTP_HOST"):
+        channels.append(_email(host))
+    if not channels:
+        return [], None
+    secret, public = os.environ.get("AIOS_ACTION_LINK_SECRET"), os.environ.get("AIOS_PUBLIC_URL")
+    if not secret or not public:
+        names = ", ".join(c.name for c in channels)
+        raise SystemExit(f"{names} need AIOS_PUBLIC_URL and AIOS_ACTION_LINK_SECRET")
+    try:
+        return channels, ActionLinks(secret, public)
+    except ValueError as exc:
+        raise SystemExit(f"AIOS_ACTION_LINK_SECRET or AIOS_PUBLIC_URL: {exc}") from None
+
+
+def _email(host: str) -> EmailChannel:
+    sender = os.environ.get("AIOS_EMAIL_FROM")
+    if not sender:
+        raise SystemExit("AIOS_SMTP_HOST needs AIOS_EMAIL_FROM, the address mail comes from")
+    tls = os.environ.get("AIOS_SMTP_TLS", "starttls")
+    if tls not in ("starttls", "ssl", "none"):
+        raise SystemExit("AIOS_SMTP_TLS is starttls, ssl or none")
+    port = os.environ.get("AIOS_SMTP_PORT", "465" if tls == "ssl" else "587")
+    smtp = Smtp(
+        host,
+        int(port),
+        username=os.environ.get("AIOS_SMTP_USER"),
+        password=os.environ.get("AIOS_SMTP_PASSWORD"),
+        tls=tls,
+    )
+    return EmailChannel(sender, smtp)
+
+
 def demo_page(role: Role, apps: Sequence[Path]) -> Path | None:
     """``aios dev`` serves the first ``demo.html`` an App ships: it has no sign-in of its own."""
     pages = (directory / "demo.html" for directory in apps)
     return next((page for page in pages if page.is_file()), None) if role == "dev" else None
+
+
+MAX_ANSWER_WAIT_SECONDS = 900.0
+"""OpenAI's clients give up after 600 seconds by default."""
+
+
+def answer_wait() -> float:
+    """``AIOS_ANSWER_WAIT``: how many seconds an OpenAI or MCP client waits for an answer before it
+    is told the run is still working (ADR-025)."""
+    text = os.environ.get("AIOS_ANSWER_WAIT")
+    if text is None:
+        return ANSWER_WAIT_SECONDS
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = -1.0
+    if not 0 < seconds <= MAX_ANSWER_WAIT_SECONDS:
+        raise SystemExit(
+            f"AIOS_ANSWER_WAIT is seconds, more than 0 and at most {MAX_ANSWER_WAIT_SECONDS:g}"
+        )
+    return seconds
 
 
 def oidc_settings() -> OidcSettings | None:
@@ -101,6 +171,7 @@ def oidc_settings() -> OidcSettings | None:
         audience=audience,
         tenant_claim=os.environ.get("AIOS_OIDC_TENANT_CLAIM", "aios_tenant"),
         roles_claim=os.environ.get("AIOS_OIDC_ROLES_CLAIM", "roles"),
+        groups_claim=os.environ.get("AIOS_OIDC_GROUPS_CLAIM", "groups"),
     )
 
 
@@ -184,6 +255,7 @@ async def running(
 ) -> AsyncGenerator[tuple[Runtime, EventMetrics | None]]:
     bus = await _bus(database_url)
     cassette = Cassette.open(cassettes, cassette_mode) if cassettes else None
+    channels, links = approval_channels()
     runtime = Runtime(
         bus,
         tenant=tenants[0],
@@ -191,6 +263,8 @@ async def running(
         registry=model_registry(),
         secrets=secrets_from_environment(),
         approval_webhook=approval_webhook(),
+        approval_channels=channels,
+        action_links=links,
         classifier=classifier_from(os.environ.get("AIOS_INJECTION_CLASSIFIER")),
         app_cache=Path(cache) if (cache := os.environ.get("AIOS_APP_CACHE")) else None,
     )
@@ -265,13 +339,23 @@ async def serve(
         demo = demo_page(role, apps)
         authenticator = authenticator_for(role, runtime, no_auth=no_auth)
         web = web_server(
-            create_app(runtime, metrics=metrics, demo=demo, authenticator=authenticator),
+            create_app(
+                runtime,
+                metrics=metrics,
+                demo=demo,
+                authenticator=authenticator,
+                answer_wait=answer_wait(),
+            ),
             host=host,
             port=port,
             tls=tls,
         )
         scheme = "https" if tls is not None else "http"
         logger.info("AIOS %s API on %s://%s:%d", role, scheme, host, port)
+        logger.info(
+            "OpenAI-compatible chat on %s://%s:%d/openai/v1, MCP server on %s://%s:%d/mcp",
+            *(scheme, host, port) * 2,
+        )
         if authenticator is None:
             logger.warning("sign-in is off: every local caller is a platform admin")
         if tls is None and not is_loopback(host):

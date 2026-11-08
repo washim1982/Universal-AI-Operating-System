@@ -19,10 +19,12 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import jsonschema
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
+from aios.adapters import handler_for
 from aios.controlplane import replay
 from aios.controlplane.bundle import BundleError, code_folder
+from aios.controlplane.evals import Evaluator
 from aios.controlplane.installations import InMemoryInstallationStore, InstallationStore
 from aios.controlplane.installer import Installer
 from aios.controlplane.reconciler import Reconciler
@@ -31,6 +33,9 @@ from aios.core.apps import Installation as AppInstallation
 from aios.core.cassettes import Cassette
 from aios.core.catalog import (
     AppRequestReceived,
+    ContactChanged,
+    FeedbackGiven,
+    GroupChanged,
     InjectionSuspected,
     KeyChanged,
     PolicyDecided,
@@ -45,7 +50,7 @@ from aios.core.errors import (
     PolicyDeniedError,
     ToolNotFoundError,
 )
-from aios.core.human import Approval
+from aios.core.human import Approval, HumanTask
 from aios.core.identity import ApiKey, Identity, SecurityStore, Suspendable, Suspension
 from aios.core.ids import new_ulid
 from aios.core.manifests import (
@@ -53,6 +58,8 @@ from aios.core.manifests import (
     AnyManifest,
     AppManifest,
     Egress,
+    EvalCase,
+    HumanCapability,
     ModelPolicyManifest,
     PolicyManifest,
     ScheduleEntrypoint,
@@ -61,6 +68,7 @@ from aios.core.manifests import (
     WebhookEntrypoint,
     WorkflowManifest,
     load_manifests,
+    manifest_files,
 )
 from aios.core.policy import (
     PolicyAction,
@@ -74,7 +82,18 @@ from aios.core.schedule import Cron
 from aios.core.topics import PLATFORM_APP_ID
 from aios.fabric.port import EventBus, Scope
 from aios.fabric.postgres import PostgresEventBus
-from aios.human import ApprovalStore, ApprovalWebhook, HumanService, signed_by
+from aios.human import (
+    ActionLink,
+    ActionLinks,
+    ApprovalNotifier,
+    ApprovalStore,
+    ApprovalWebhook,
+    Channel,
+    Contact,
+    HumanService,
+    signed_by,
+    tasks_for,
+)
 from aios.human import store_for as approval_store_for
 from aios.kernel import (
     AgentDefinition,
@@ -142,6 +161,27 @@ async def run_tool(ctx: Context, task: dict[str, Any]) -> Any:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Feedback:
+    event: Event
+    """The ``human.feedback.given`` event."""
+    memory: str | None = None
+    """The memory item it was kept as, if it was."""
+
+    @property
+    def payload(self) -> FeedbackGiven:
+        return FeedbackGiven.model_validate(self.event.data)
+
+    def view(self) -> dict[str, JsonValue]:
+        return {
+            "feedback": self.event.id,
+            "run": self.event.runid,
+            "at": self.event.time.isoformat(),
+            **self.payload.model_dump(mode="json"),
+            "memory": self.memory,
+        }
+
+
 @dataclass
 class InstalledApp:
     tenant: str
@@ -204,7 +244,7 @@ def load_app(path: str | Path, config: Mapping[str, Any] | None = None) -> list[
             raise ValueError(f"{root.name}: invalid configuration: {exc.message}") from exc
     manifests: list[AnyManifest] = []
     for folder in ("manifests", "policies"):
-        for file in sorted((root / folder).glob("*.yaml")):
+        for file in manifest_files(root / folder):
             manifests += load_manifests(file, config=values)
     source = root / "src"
     if source.is_dir() and str(source) not in sys.path:
@@ -262,6 +302,8 @@ class Runtime:
         memory: MemoryStore | None = None,
         approvals: ApprovalStore | None = None,
         approval_webhook: ApprovalWebhook | None = None,
+        approval_channels: Sequence[Channel] = (),
+        action_links: ActionLinks | None = None,
         classifier: InjectionClassifier | None = None,
         lease: float = 30.0,
     ) -> None:
@@ -286,8 +328,31 @@ class Runtime:
         self.memory = MemoryService(
             bus, memory or memory_store_for(bus), policy=self.policy, models=self.models
         )
+        approval_store = approvals or approval_store_for(bus)
+        if approval_channels and action_links is None:
+            raise ValueError("approval channels need action links to send")
+        self.links = action_links
+        notifier = (
+            ApprovalNotifier(
+                approval_store,
+                approval_channels,
+                action_links,
+                groups=self.groups,
+                contacts=self.contacts,
+                holders=self.security.holders,
+            )
+            if approval_channels and action_links is not None
+            else None
+        )
         self.human = HumanService(
-            bus, approvals or approval_store_for(bus), webhook=approval_webhook, lease=lease
+            bus,
+            approval_store,
+            webhook=approval_webhook,
+            lease=lease,
+            groups=self.groups,
+            notifier=notifier,
+            tasks=tasks_for(bus),
+            humans=self.humans,
         )
         self.tool_registry = ToolRegistry()
         self.secrets = _DeclaredSecrets(self, secrets or EnvSecrets())
@@ -314,6 +379,7 @@ class Runtime:
         self.installer = Installer(self.installations, prove=self._prove)
         self.app_cache = app_cache or Path.cwd() / ".aios" / "apps"
         self.reconciler = Reconciler(bus, self.installations, self, cache=self.app_cache)
+        self.evaluator = Evaluator(self, lease=self.lease)
         self.engine: WorkflowEngine | None = None
         self.workers: list[Worker] = []
         self.recorder: AuditRecorder | None = None
@@ -350,7 +416,9 @@ class Runtime:
         for name in app.spec.workflows:
             if name not in workflows:
                 raise NotFoundError(f"App {app.metadata.name}: no Workflow manifest for {name!r}")
-        definitions = [from_manifest(agents[name]) for name in app.spec.agents]
+        definitions = [
+            from_manifest(agents[name], handler_for(agents[name])) for name in app.spec.agents
+        ]
         access = {definition.name: definition.tools for definition in definitions}
         tool_steps = sorted(
             {s.tool for w in workflows.values() for s in w.spec.steps if isinstance(s, ToolStep)}
@@ -376,7 +444,13 @@ class Runtime:
         self.models.use_policy(tenant, app.metadata.name, app.spec.model_policy)
         self.models.use_budgets(tenant, app.metadata.name, app.spec.budgets)
         self.tools.set_egress(tenant, app.metadata.name, _granted_egress(app.spec.egress, grants))
-        capabilities = frozenset(c for d in definitions for c in d.capabilities)
+        by_agents = frozenset(c for d in definitions for c in d.capabilities)
+        by_people = frozenset(h.capability for h in app.spec.humans)
+        if both := sorted(by_agents & by_people):
+            raise ValueError(
+                f"App {app.metadata.name}: {', '.join(both)} can't be both an agent's and people's"
+            )
+        capabilities = by_agents | by_people
         previous = self.catalog.get(tenant, app.metadata.name)
         versions = {
             **(previous.versions if previous is not None else {}),
@@ -402,7 +476,7 @@ class Runtime:
         try:
             for manifest in manifests:
                 if isinstance(manifest, AgentManifest):
-                    from_manifest(manifest)
+                    from_manifest(manifest, handler_for(manifest))
         except (ImportError, AttributeError, ValueError) as exc:
             raise BundleError(f"{bundle.name} {bundle.version} won't load: {exc}") from exc
 
@@ -484,6 +558,7 @@ class Runtime:
         await self.engine.start()
         self.recorder = AuditRecorder(self.bus, self.audit, lease=self.lease)
         await self.recorder.start()
+        await self.evaluator.start()
         self._janitor = asyncio.create_task(self._expire_memory())
         self._scheduler = asyncio.create_task(self._run_schedules())
         self.workers = [self._worker(app) for app in self.apps.values() if app.agents]
@@ -588,6 +663,7 @@ class Runtime:
             await worker.stop()
         if self.recorder is not None:
             await self.recorder.stop()
+        await self.evaluator.stop()
         await self.human.stop()
         await self._stop_janitor()
         await self.tool_registry.close()
@@ -606,6 +682,7 @@ class Runtime:
         data_class: DataClass = DataClass.INTERNAL,
         session: str | None = None,
         traceparent: str | None = None,
+        via: Literal["openai", "mcp"] | None = None,
     ) -> str:
         """Start a run through the App's chat entrypoint; returns the run id (FR-APP-02).
 
@@ -613,6 +690,7 @@ class Runtime:
         ``onbehalfof``, and each tool call is decided for the agent and for it (FR-SEC-05).
         ``data_class`` labels the run, which limits the models it can reach (FR-SEC-11).
         ``session`` joins an earlier run's conversation, and with it its session memory.
+        ``via`` says the request came through the OpenAI-compatible endpoint or the MCP server.
 
         A caller's own request doesn't taint its run: policy already limits it to what that caller
         may do, and otherwise every run would be tainted and taint would mean nothing. It does if
@@ -640,7 +718,7 @@ class Runtime:
             dataclass=data_class,
             tainted=relayed or suspected is not None,
             traceparent=traceparent,
-            data={"entrypoint": "chat", "input": body},
+            data={"entrypoint": "chat", "input": body, **({"via": via} if via else {})},
         )
         await self.bus.publish(request, *self._suspicion(request, suspected))
         return run_id
@@ -888,6 +966,8 @@ class Runtime:
         approve: bool,
         comment: str | None = None,
         any_approver: bool = False,
+        edits: dict[str, JsonValue] | None = None,
+        via: str | None = None,
     ) -> Approval:
         """A person's answer. The kill switch applies, and a refusal is on the record."""
         approval = await self.human.get(by.tenant, approval_id)
@@ -898,7 +978,13 @@ class Runtime:
             raise PolicyDeniedError(decision.reason or "approval.decide is not allowed")
         try:
             return await self.human.decide(
-                by, approval_id, approve=approve, comment=comment, any_approver=any_approver
+                by,
+                approval_id,
+                approve=approve,
+                comment=comment,
+                any_approver=any_approver,
+                edits=edits,
+                via=via,
             )
         except ApprovalForbiddenError as exc:
             payload = PolicyDecided(
@@ -907,7 +993,175 @@ class Runtime:
             await self._security_event(by, "policy.decision.denied", payload)
             raise
 
-    async def _security_event(self, by: Identity, type: str, data: BaseModel) -> None:
+    async def groups(self, tenant: str) -> dict[str, frozenset[str]]:
+        """A tenant's groups and their members, as last set (FR-HUM-04). An empty group is gone."""
+        found: dict[str, frozenset[str]] = {}
+        scope = Scope(tenant, PLATFORM_APP_ID)
+        async for stored in self.bus.replay(scope, "security.group.changed"):
+            data = stored.event.data if isinstance(stored.event.data, dict) else {}
+            found[str(data.get("group"))] = frozenset(cast(list[str], data.get("members") or []))
+        return {name: members for name, members in sorted(found.items()) if members}
+
+    async def set_group(self, by: Identity, group: str, members: Collection[str]) -> None:
+        """Set who is in a group; an approval rule can then name ``group:<name>``."""
+        changed = GroupChanged(group=group, members=sorted(set(members)))
+        await self._security_event(by, "security.group.changed", changed)
+
+    # ------------------------------------------------------------------ feedback (FR-HUM-09)
+
+    async def give_feedback(
+        self, by: Identity, app: str, run_id: str, given: FeedbackGiven
+    ) -> Feedback:
+        """Record what a person thought of a run, or one step of it. With ``remember``, the
+        comment and correction are kept in the App's memory too, where its agents can find them."""
+        state = await self.run_state(app, run_id, tenant=by.tenant)
+        if state.started_event is None:
+            raise NotFoundError(f"no run {run_id} of {app}")
+        if given.step is not None and given.step not in state.steps:
+            raise ValueError(f"run {run_id} has no step {given.step!r}")
+        decision = await self.authorize(by, PolicyAction.RUN_FEEDBACK, app=app)
+        if not decision.allowed:
+            raise PolicyDeniedError(f"run.feedback: {decision.reason or 'not allowed'}")
+        event = state.started_event.derive(
+            "human.feedback.given",
+            given.model_copy(update={"by": by.principal}).model_dump(mode="json"),
+            source=f"aios://{by.tenant}/system/feedback",
+            principal=by.principal,
+        )
+        await self.bus.publish(event)
+        remembered = None
+        if given.remember and (given.comment or given.correction is not None):
+            remembered = await self._remember_feedback(by, event, given)
+        return Feedback(event, remembered)
+
+    async def _remember_feedback(self, by: Identity, event: Event, given: FeedbackGiven) -> str:
+        decision = await self.policy.decide(
+            PolicyRequest(
+                tenant=by.tenant,
+                app=event.appid,
+                actor=by.actor,
+                action=PolicyAction.MEMORY_WRITE,
+                resource=Resource.memory_scope("app"),
+            )
+        )
+        if not decision.allowed:
+            payload = PolicyDecided(
+                action=PolicyAction.MEMORY_WRITE.value, resource="app", reason=decision.reason
+            )
+            await self._security_event(by, "policy.decision.denied", payload)
+            raise PolicyDeniedError(
+                f"memory.write on app memory: {decision.reason or 'not allowed'}"
+            )
+        about = f"step {given.step}" if given.step else "a run"
+        lines = [f"Feedback from {by.principal} on {about} ({given.rating or 'unrated'})."]
+        if given.comment:
+            lines.append(given.comment)
+        if given.correction is not None:
+            lines.append(f"A right result would have been: {json.dumps(given.correction)}")
+        item = await self.memory.remember_as(
+            by,
+            "\n".join(lines),
+            event=event,
+            metadata={"feedback": event.id, "run": event.runid, "rating": given.rating},
+        )
+        return item.id
+
+    async def feedback(self, tenant: str, app: str, *, run_id: str | None = None) -> list[Feedback]:
+        """What people said about an App's runs, oldest first."""
+        scope = Scope(tenant, app)
+        found = self.bus.replay(scope, "human.feedback.given", run_id=run_id)
+        return [Feedback(stored.event) async for stored in found]
+
+    async def feedback_cases(self, tenant: str, app: str) -> list[EvalCase]:
+        """Evaluation cases from corrections of whole runs: what the run was asked, and what
+        the person said a right answer is. A step's correction isn't one: a case asks the App."""
+        cases: list[EvalCase] = []
+        for given in await self.feedback(tenant, app):
+            if given.payload.step is not None or given.payload.correction is None:
+                continue
+            state = await self.run_state(app, str(given.event.runid), tenant=tenant)
+            if state.input is None:
+                continue
+            cases.append(
+                EvalCase(
+                    id=f"feedback-{given.event.id.lower()}",
+                    input=state.input,
+                    expected=given.payload.correction,
+                    tags=["feedback"],
+                )
+            )
+        return cases
+
+    def humans(self, tenant: str, app: str, capability: str) -> HumanCapability | None:
+        """Who does ``capability`` in this App, if people do (FR-HUM-08)."""
+        installed = self.apps.get((tenant, app))
+        if installed is None:
+            return None
+        return next((h for h in installed.manifest.spec.humans if h.capability == capability), None)
+
+    async def complete_task(
+        self,
+        by: Identity,
+        task_id: str,
+        output: JsonValue,
+        *,
+        comment: str | None = None,
+        anyone: bool = False,
+    ) -> HumanTask:
+        """A person's work, as the result of the task it was. The kill switch applies."""
+        task = await self.human.task(by.tenant, task_id)
+        if task is None:
+            raise NotFoundError(f"no task {task_id}")
+        decision = await self.authorize(by, PolicyAction.TASK_WORK, app=task.app)
+        if not decision.allowed:
+            raise PolicyDeniedError(f"task.work: {decision.reason or 'not allowed'}")
+        return await self.human.complete(by, task_id, output, comment=comment, anyone=anyone)
+
+    async def contacts(self, tenant: str) -> dict[str, Contact]:
+        """Where each person of a tenant is told about approvals, as they last set it."""
+        found: dict[str, Contact] = {}
+        scope = Scope(tenant, PLATFORM_APP_ID)
+        async for stored in self.bus.replay(scope, "security.contact.changed"):
+            data = ContactChanged.model_validate(stored.event.data)
+            if stored.event.principal != data.principal:
+                continue  # only a person sets their own: anything else isn't theirs
+            if data.email is None and data.slack is None:
+                found.pop(data.principal, None)
+            else:
+                found[data.principal] = Contact(email=data.email, slack=data.slack)
+        return found
+
+    async def set_contact(self, by: Identity, contact: Contact) -> None:
+        """Set where ``by`` is told. Nobody can set it for anyone else."""
+        changed = ContactChanged(principal=by.principal, email=contact.email, slack=contact.slack)
+        await self._security_event(
+            by, "security.contact.changed", changed, dataclass=DataClass.CONFIDENTIAL
+        )
+
+    def action_link(self, token: str) -> ActionLink:
+        """The signed link ``token`` is (FR-HUM-07). Raises if it isn't one, or has expired."""
+        link = self.links.read(token) if self.links is not None else None
+        if link is None:
+            raise AuthenticationError("this link isn't valid, or has expired")
+        return link
+
+    async def act(self, token: str, *, comment: str | None = None) -> Approval:
+        """Answer as a signed link says, as its person, with the roles they have now."""
+        link = self.action_link(token)
+        roles = await self.security.roles(link.tenant, link.principal)
+        person = Identity(link.principal, link.tenant, roles)
+        return await self.decide_approval(
+            person, link.approval, approve=link.approve, comment=comment, via=link.channel
+        )
+
+    async def _security_event(
+        self,
+        by: Identity,
+        type: str,
+        data: BaseModel,
+        *,
+        dataclass: DataClass = DataClass.INTERNAL,
+    ) -> None:
         await self.bus.publish(
             Event(
                 source=f"aios://{by.tenant}/system/security",
@@ -916,6 +1170,7 @@ class Runtime:
                 appid=PLATFORM_APP_ID,
                 principal=by.principal,
                 data=data.model_dump(mode="json"),
+                dataclass=dataclass,
             )
         )
 

@@ -60,21 +60,34 @@ defines a schema.
 | `approval.requested` | command | Workflow Engine, Security Kernel | [approval.requested.v1](schemas/events/approval.requested.v1.json) | Asks Human OS for a decision; the step waiting for it stops until it arrives. |
 | `approval.granted` | fact | Human OS | [approval.granted.v1](schemas/events/approval.granted.v1.json) | The approval was granted. |
 | `approval.denied` | fact | Human OS | [approval.denied.v1](schemas/events/approval.denied.v1.json) | The approval was denied. |
-| `approval.modified` | fact | Human OS | *pending* | The approver changed the proposed action. |
+| `approval.modified` | fact | Human OS | [approval.modified.v1](schemas/events/approval.modified.v1.json) | The approver changed the proposed action. |
 | `approval.expired` | fact | Human OS | [approval.expired.v1](schemas/events/approval.expired.v1.json) | No decision before the timeout. |
-| `approval.escalated` | fact | Human OS | *pending* | The approval moved to the next approver tier. |
+| `approval.voted` | fact | Human OS | [approval.voted.v1](schemas/events/approval.voted.v1.json) | One of the yeses a quorum needs. |
+| `approval.reminded` | fact | Human OS | [approval.reminded.v1](schemas/events/approval.reminded.v1.json) | Approvers were reminded. |
+| `approval.escalated` | fact | Human OS | [approval.escalated.v1](schemas/events/approval.escalated.v1.json) | Nobody answered in time: the next tier of approvers was asked as well. |
 | `approval.cancelled` | fact | Human OS | [approval.cancelled.v1](schemas/events/approval.cancelled.v1.json) | The run no longer needs the approval. |
-| `human.task.assigned` | fact | Human OS | *pending* | Work assigned to a person. |
-| `human.task.completed` | fact | Human OS | *pending* | A person completed assigned work. |
+| `human.task.assigned` | fact | Human OS | [human.task.assigned.v1](schemas/events/human.task.assigned.v1.json) | Work assigned to people. |
+| `human.task.completed` | fact | Human OS | [human.task.completed.v1](schemas/events/human.task.completed.v1.json) | A person did the work. |
+| `human.task.cancelled` | fact | Human OS | [human.task.cancelled.v1](schemas/events/human.task.cancelled.v1.json) | The run no longer needs the work. |
+| `human.feedback.given` | fact | Human OS | [human.feedback.given.v1](schemas/events/human.feedback.given.v1.json) | A person rated or corrected what a run did. |
 | `policy.decision.allowed` | fact | Security Kernel | [policy.decision.allowed.v1](schemas/events/policy.decision.allowed.v1.json) | A governed action was allowed. |
 | `policy.decision.denied` | fact | Security Kernel | [policy.decision.denied.v1](schemas/events/policy.decision.denied.v1.json) | A governed action was denied. |
 | `policy.decision.escalated` | fact | Security Kernel | [policy.decision.escalated.v1](schemas/events/policy.decision.escalated.v1.json) | A governed action needs an approval first. |
 | `security.injection.suspected` | fact | Security Kernel | [security.injection.suspected.v1](schemas/events/security.injection.suspected.v1.json) | Content reaching an agent looks like an injection (FR-SEC-09). |
 | `security.key.created` | fact | Security Kernel | [security.key.created.v1](schemas/events/security.key.created.v1.json) | An API key was created. |
+| `security.group.changed` | fact | Security Kernel | [security.group.changed.v1](schemas/events/security.group.changed.v1.json) | A group's members were set. |
+| `security.contact.changed` | fact | Security Kernel | [security.contact.changed.v1](schemas/events/security.contact.changed.v1.json) | A person set where they are told about approvals. |
 | `security.key.revoked` | fact | Security Kernel | [security.key.revoked.v1](schemas/events/security.key.revoked.v1.json) | An API key was revoked. |
 | `security.suspended` | fact | Security Kernel | [security.suspended.v1](schemas/events/security.suspended.v1.json) | The kill switch stopped an agent, an App or a tenant (FR-SEC-13). |
 | `security.resumed` | fact | Security Kernel | [security.resumed.v1](schemas/events/security.resumed.v1.json) | A suspension ended. |
 | `budget.warning` | fact | Model Kernel | [budget.warning.v1](schemas/events/budget.warning.v1.json) | A soft budget limit was reached. |
 | `budget.exceeded` | fact | Model Kernel, Workflow Engine, Event Fabric | [budget.exceeded.v1](schemas/events/budget.exceeded.v1.json) | A hard budget limit was hit. |
+| `eval.experiment.requested` | command | Access layer | [eval.experiment.requested.v1](schemas/events/eval.experiment.requested.v1.json) | Someone asked for an evaluation suite to be run (FR-OBS-07). |
+| `eval.experiment.started` | fact | Evaluator | [eval.experiment.started.v1](schemas/events/eval.experiment.started.v1.json) | An experiment began. |
+| `eval.case.started` | fact | Evaluator | [eval.case.started.v1](schemas/events/eval.case.started.v1.json) | A case of an experiment began. |
+| `eval.case.completed` | fact | Evaluator | [eval.case.completed.v1](schemas/events/eval.case.completed.v1.json) | A case was run and graded. |
+| `eval.case.graded` | fact | Access layer | [eval.case.graded.v1](schemas/events/eval.case.graded.v1.json) | A person graded a case. |
+| `eval.experiment.completed` | fact | Evaluator | [eval.experiment.completed.v1](schemas/events/eval.experiment.completed.v1.json) | Every case of an experiment was run. |
+| `eval.run.graded` | fact | Evaluator | [eval.run.graded.v1](schemas/events/eval.run.graded.v1.json) | A sampled production run was graded. |
 | `system.dlq.added` | fact | Event Fabric | [system.dlq.added.v1](schemas/events/system.dlq.added.v1.json) | An event was dead-lettered (FR-EVT-08). |
 | `system.consumer.lagging` | fact | Event Fabric | *pending* | A consumer group is falling behind. |

@@ -54,6 +54,9 @@ class InMemorySecurityStore(SecurityStore):
     async def roles(self, tenant: str, principal: str) -> frozenset[str]:
         return self._roles.get((tenant, principal), frozenset())
 
+    async def holders(self, tenant: str, role: str) -> list[str]:
+        return sorted(p for (t, p), roles in self._roles.items() if t == tenant and role in roles)
+
     async def suspend(self, suspension: Suspension) -> None:
         key = (suspension.tenant, suspension.kind, suspension.name)
         self._suspensions.setdefault(key, suspension)

@@ -45,9 +45,9 @@ SVIDs arrive with process isolation (FR-SEC-02 P1, ADR-014).
 
 | Role | Can |
 |---|---|
-| `member` | List Apps, start and read runs, have agents use tools on their behalf, and answer approvals a rule names them for |
-| `auditor` | Read Apps, runs, events, approvals and the audit log |
-| `operator` | `member`, plus run control, the event log and dead letters |
+| `member` | List Apps, start and read runs, have agents use tools on their behalf, answer approvals a rule names them for, do work assigned to them, give feedback on runs, read evaluations and grade the cases a grader names them for (ADR-023) |
+| `auditor` | Read Apps, runs, events, approvals, evaluations and the audit log |
+| `operator` | `member`, plus run control, the event log, dead letters and running evaluations (ADR-022) |
 | `tenant-admin` | `operator`, plus the audit log, API keys and the kill switch |
 | `platform-admin` | `tenant-admin`, plus installing Apps and reading `/metrics` |
 

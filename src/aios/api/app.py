@@ -15,6 +15,8 @@
   Anyone else gets a 404, unless they may read the audit log.
 * ``GET /metrics`` (Prometheus) and ``GET /healthz``, which says if answers are live or recorded.
 * ``GET /demo``: a page an App ships, when the server was given one.
+* ``/openai/v1``: each App as an OpenAI model, for OpenAI's clients (WP 3.7; ``openai_compat``).
+* ``/mcp``: the Apps as tools of an MCP server, for MCP clients (WP 3.7; ``mcp_server``).
 
 Every route but ``/healthz`` and ``/demo`` names the action it needs, and a policy decides
 (FR-SEC-04). With an ``authenticator``, the tenant comes from the caller's credential, and a
@@ -26,8 +28,11 @@ Only a loopback address may run that way, which ``aios`` enforces when it starts
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+import re
+import urllib.parse
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,14 +40,19 @@ from typing import Annotated, Any, Literal, Self
 
 import yaml
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field, JsonValue, model_validator
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from pydantic import BaseModel, Field, JsonValue, ValidationError, model_validator
+from starlette.routing import Route
 
 from aios import __version__
+from aios.api import pages
+from aios.api.mcp_server import MCPEndpoint
+from aios.api.openai_compat import openai_routes
 from aios.controlplane import ANONYMOUS, RunSummary, Runtime, views
 from aios.controlplane.bundle import bundle_from_documents
 from aios.controlplane.replay import KEEP
 from aios.core.apps import Bundle, DataChoice, Grants, Installation
+from aios.core.catalog import FeedbackGiven
 from aios.core.envelope import DataClass, Event, Principal
 from aios.core.errors import (
     AIOSError,
@@ -58,13 +68,18 @@ from aios.core.errors import (
     ToolError,
     ToolInputError,
 )
+from aios.core.evals import Experiment, check_gate
+from aios.core.evals import compare as compare_experiments_of
 from aios.core.human import Approval, ApprovalStatus
 from aios.core.identity import Authenticator, Identity, Suspendable
 from aios.core.ids import Ulid
+from aios.core.manifests import EvaluationManifest
 from aios.core.memory import MemoryScope
 from aios.core.policy import PolicyAction
+from aios.core.schemas import envelope_schema, event_schema, manifest_schema, registry
 from aios.core.topics import PLATFORM_APP_ID, SignalName, is_dns_label
 from aios.fabric.port import Scope
+from aios.human import Contact
 from aios.memory import Document
 from aios.observability import EventMetrics
 from aios.observability.compare import Comparison
@@ -76,6 +91,7 @@ TERMINAL = ("run.completed", "run.failed", "run.cancelled")
 PLATFORM_ROLE = "platform-admin"
 LOCAL_ROLES = frozenset({PLATFORM_ROLE})
 _POLL_SECONDS = 0.1
+ANSWER_WAIT_SECONDS = 120.0
 
 
 IngestScope = Literal["app", "tenant", "global"]
@@ -127,6 +143,46 @@ class ForkRequest(BaseModel):
     model: str | None = Field(default=None, description="A registry entry every model call uses")
 
 
+GROUP_NAME = re.compile(r"[A-Za-z0-9._-]{1,100}")
+ACT_MAX_BYTES = 8192
+
+
+class ExperimentRequest(BaseModel):
+    suite: dict[str, JsonValue] = Field(description="An Evaluation manifest, as JSON")
+    label: str | None = Field(default=None, max_length=200, description="What it tries")
+
+
+class FeedbackRequest(BaseModel):
+    step: str | None = Field(default=None, max_length=200)
+    rating: Literal["good", "bad"] | None = None
+    correction: JsonValue = Field(default=None, description="What a right result would have been")
+    comment: str | None = Field(default=None, max_length=2000)
+    remember: bool = Field(default=False, description="Keep it in the App's memory as well")
+
+
+class TaskAnswer(BaseModel):
+    output: JsonValue = Field(default=None, description="The work's result, as the run gets it")
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class ContactRequest(BaseModel):
+    email: str | None = Field(default=None, max_length=320)
+    slack: str | None = Field(default=None, max_length=24, description="A Slack member id")
+
+
+class GroupRequest(BaseModel):
+    members: list[str] = Field(
+        default_factory=list[str], max_length=1000, description="Principals; none removes it"
+    )
+
+
+class GradeRequest(BaseModel):
+    case: str
+    grader: str
+    score: float = Field(ge=0, le=1)
+    comment: str | None = Field(default=None, max_length=2000)
+
+
 class MemoryEdit(BaseModel):
     content: str = Field(min_length=1)
     version: int = Field(ge=1, description="The version being corrected, so two people can't clash")
@@ -148,6 +204,9 @@ class ForgetRequest(BaseModel):
 
 class ApprovalAnswer(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
+    edits: dict[str, JsonValue] | None = Field(
+        default=None, description="Approve: new values for some of the action's parameters"
+    )
 
 
 class KnowledgeDocument(BaseModel):
@@ -288,8 +347,13 @@ MemoryManager = Annotated[Identity, Depends(requires(PolicyAction.MEMORY_MANAGE)
 AppManager = Annotated[Identity, Depends(requires(PolicyAction.APP_MANAGE))]
 ApprovalReader = Annotated[Identity, Depends(requires(PolicyAction.APPROVAL_READ))]
 ApprovalDecider = Annotated[Identity, Depends(requires(PolicyAction.APPROVAL_DECIDE))]
+TaskWorker = Annotated[Identity, Depends(requires(PolicyAction.TASK_WORK))]
+FeedbackGiver = Annotated[Identity, Depends(requires(PolicyAction.RUN_FEEDBACK, per_app=True))]
 Suspender = Annotated[Identity, Depends(requires(PolicyAction.SUSPEND))]
 MetricsReader = Annotated[Identity, Depends(requires(PolicyAction.METRICS_READ))]
+EvalRunner = Annotated[Identity, Depends(requires(PolicyAction.EVAL_RUN, per_app=True))]
+EvalReader = Annotated[Identity, Depends(requires(PolicyAction.EVAL_READ, per_app=True))]
+EvalGrader = Annotated[Identity, Depends(requires(PolicyAction.EVAL_GRADE, per_app=True))]
 
 
 def create_app(  # noqa: PLR0915 - the route table
@@ -298,9 +362,22 @@ def create_app(  # noqa: PLR0915 - the route table
     metrics: EventMetrics | None = None,
     demo: Path | None = None,
     authenticator: Authenticator | None = None,
+    answer_wait: float = ANSWER_WAIT_SECONDS,
 ) -> FastAPI:
-    api = FastAPI(title="AIOS API", version=__version__)
-    api.state.gate = Gate(runtime, authenticator)
+    """The API. ``answer_wait`` is how long a client that wants an answer back (OpenAI's chat
+    completions, MCP) is kept waiting before it is told the run is still working."""
+    gate = Gate(runtime, authenticator)
+    mcp = MCPEndpoint(runtime, gate.identify, wait_seconds=answer_wait, local=authenticator is None)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+        async with mcp.running():
+            yield
+
+    api = FastAPI(title="AIOS API", version=__version__, lifespan=lifespan)
+    api.state.gate = gate
+    api.include_router(openai_routes(runtime, wait_seconds=answer_wait))
+    api.router.routes.append(Route("/mcp", mcp, methods=["GET", "POST", "DELETE"]))
 
     def installed(app: str, tenant: str) -> None:
         try:
@@ -488,6 +565,37 @@ def create_app(  # noqa: PLR0915 - the route table
             if owner == caller.tenant
         ]
 
+    # ------------------------------------------------------------------ schema registry
+
+    @api.get("/v1/schemas")
+    async def schemas(caller: AppReader) -> dict[str, Any]:
+        """Every event type and manifest kind, and where its JSON Schema is (FR-EVT-10)."""
+        return registry()
+
+    @api.get("/v1/schemas/envelope")
+    async def schema_of_envelope(caller: AppReader) -> dict[str, Any]:
+        return envelope_schema()
+
+    @api.get("/v1/schemas/events/{event_type}")
+    async def schema_of_event(event_type: str, caller: AppReader) -> dict[str, Any]:
+        found = event_schema(event_type)
+        if found is None:
+            raise HTTPException(404, f"no schema for {event_type}")
+        return found
+
+    @api.get("/v1/schemas/manifests/{kind}")
+    async def schema_of_manifest(kind: str, caller: AppReader) -> dict[str, Any]:
+        found = manifest_schema(kind)
+        if found is None:
+            raise HTTPException(404, f"no manifest kind {kind}")
+        return found
+
+    @api.get("/v1/apps/{app}")
+    async def describe_app(app: str, caller: AppReader) -> dict[str, Any]:
+        """What the App is made of: its agents, the work people do, its workflows and steps."""
+        installed(app, caller.tenant)
+        return views.app_of(runtime.app(app, tenant=caller.tenant))
+
     @api.post("/v1/apps/{app}/runs", status_code=202)
     async def start_run(
         app: str,
@@ -568,6 +676,117 @@ def create_app(  # noqa: PLR0915 - the route table
         await state_of(app, other, caller.tenant)
         return await views.comparison(runtime, caller.tenant, app, run_id, other)
 
+    # ------------------------------------------------------------------ groups
+
+    @api.get("/v1/groups")
+    async def list_groups(caller: KeyManager) -> dict[str, list[str]]:
+        """The tenant's groups and their members, which approvals name as ``group:<name>``."""
+        return {
+            name: sorted(members) for name, members in (await runtime.groups(caller.tenant)).items()
+        }
+
+    @api.put("/v1/groups/{group}")
+    async def set_group(group: str, request: GroupRequest, caller: KeyManager) -> dict[str, Any]:
+        """Set who is in a group. Members are principals of the caller's tenant."""
+        if not GROUP_NAME.fullmatch(group):
+            raise HTTPException(
+                422, "a group's name is letters, digits, dots, dashes and underscores"
+            )
+        strangers = [m for m in request.members if not m.endswith(f"@{caller.tenant}")]
+        if strangers:
+            raise HTTPException(422, f"not of tenant {caller.tenant}: {', '.join(strangers)}")
+        await runtime.set_group(caller, group, request.members)
+        return {"group": group, "members": sorted(set(request.members))}
+
+    # ------------------------------------------------------------------ evaluation
+
+    def experiment_view(found: Experiment) -> dict[str, Any]:
+        gate = check_gate(found, found.gate)
+        return {**found.summary(), "gate_result": gate.model_dump(mode="json")}
+
+    async def experiment_of_app(app: str, experiment: str, tenant: str) -> Experiment:
+        installed(app, tenant)
+        found = await runtime.evaluator.experiment(tenant, app, experiment)
+        if found is None:
+            raise HTTPException(404, f"no experiment {experiment}")
+        return found
+
+    @api.post("/v1/apps/{app}/experiments", status_code=202)
+    async def run_experiment(
+        app: str, request: ExperimentRequest, caller: EvalRunner
+    ) -> dict[str, str]:
+        """Run an evaluation suite against the App; a worker runs it (FR-OBS-07)."""
+        installed(app, caller.tenant)
+        try:
+            suite = EvaluationManifest.model_validate(request.suite)
+        except ValueError as exc:
+            raise HTTPException(422, f"not an evaluation: {exc}") from exc
+        try:
+            experiment = await runtime.evaluator.request(
+                caller.tenant,
+                app,
+                suite,
+                principal=caller.principal,
+                on_behalf_of=None if caller.principal == ANONYMOUS else caller.principal,
+                label=request.label,
+            )
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"experiment": experiment, "app": app}
+
+    @api.get("/v1/apps/{app}/experiments")
+    async def experiments(app: str, caller: EvalReader, limit: int = 50) -> list[dict[str, Any]]:
+        """The App's experiments, newest first."""
+        installed(app, caller.tenant)
+        found = await runtime.evaluator.experiments(caller.tenant, app, min(max(limit, 1), 200))
+        return [experiment_view(experiment) for experiment in found]
+
+    @api.get("/v1/apps/{app}/experiments/{experiment}")
+    async def experiment(app: str, experiment: str, caller: EvalReader) -> dict[str, Any]:
+        """An experiment: each case, its grades, its score, and whether it passes its gate."""
+        return experiment_view(await experiment_of_app(app, experiment, caller.tenant))
+
+    @api.get("/v1/apps/{app}/experiments/{experiment}/compare/{other}")
+    async def compare_experiments(
+        app: str, experiment: str, other: str, caller: EvalReader
+    ) -> dict[str, Any]:
+        """Two experiments case by case: one suite on two versions of the App."""
+        a = await experiment_of_app(app, experiment, caller.tenant)
+        b = await experiment_of_app(app, other, caller.tenant)
+        return compare_experiments_of(a, b).view()
+
+    @api.post("/v1/apps/{app}/experiments/{experiment}/grades")
+    async def grade_case(
+        app: str, experiment: str, request: GradeRequest, caller: EvalGrader
+    ) -> dict[str, Any]:
+        """A person's grade for a case that asked for one."""
+        installed(app, caller.tenant)
+        try:
+            found = await runtime.evaluator.grade(
+                caller,
+                app,
+                experiment,
+                case=request.case,
+                grader=request.grader,
+                score=request.score,
+                comment=request.comment,
+            )
+        except NotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except PolicyDeniedError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return experiment_view(found)
+
+    @api.get("/v1/apps/{app}/evaluations/online")
+    async def online_evaluations(
+        app: str, caller: EvalReader, limit: int = 50
+    ) -> list[dict[str, JsonValue]]:
+        """Production runs graded as they finished (FR-OBS-07 online evaluation)."""
+        installed(app, caller.tenant)
+        return await runtime.evaluator.online(caller.tenant, app, min(max(limit, 1), 200))
+
     @api.post("/v1/hooks/{tenant}/{app}/{name}", status_code=202)
     async def webhook(
         tenant: str,
@@ -614,6 +833,57 @@ def create_app(  # noqa: PLR0915 - the route table
     @api.get("/v1/me")
     async def me(caller: AppReader) -> Me:
         return Me(principal=caller.principal, tenant=caller.tenant, roles=sorted(caller.roles))
+
+    @api.get("/v1/me/contact")
+    async def my_contact(caller: AppReader) -> ContactRequest:
+        """Where you are told about approvals for you (FR-HUM-07)."""
+        found = (await runtime.contacts(caller.tenant)).get(caller.principal) or Contact()
+        return ContactRequest(email=found.email, slack=found.slack)
+
+    @api.put("/v1/me/contact")
+    async def set_my_contact(request: ContactRequest, caller: AppReader) -> ContactRequest:
+        """Set your own: nobody can set it for you, so nobody can send your links elsewhere."""
+        try:
+            contact = Contact(email=request.email or None, slack=request.slack or None)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        await runtime.set_contact(caller, contact)
+        return ContactRequest(email=contact.email, slack=contact.slack)
+
+    # ------------------------------------------------------------------ signed approval links
+
+    @api.get("/v1/act/{token}", response_class=HTMLResponse, include_in_schema=False)
+    async def action_page(token: str) -> HTMLResponse:
+        """What a signed link asks, and a button. Opening it decides nothing."""
+        try:
+            link = runtime.action_link(token)
+        except AuthenticationError as exc:
+            return pages.message("This link can't be used", str(exc), status=401)
+        approval = await runtime.human.get(link.tenant, link.approval)
+        if approval is None:
+            return pages.message("Nothing to answer", "That approval isn't there.", status=404)
+        return pages.confirmation(link, approval)
+
+    @api.post("/v1/act/{token}", response_class=HTMLResponse, include_in_schema=False)
+    async def act(token: str, request: Request) -> HTMLResponse:
+        """The answer a signed link carries, given by its person."""
+        body = await request.body()
+        if len(body) > ACT_MAX_BYTES:
+            return pages.message("Too long", "That comment is too long.", status=413)
+        form = urllib.parse.parse_qs(body.decode("utf-8", "replace"), max_num_fields=4)
+        comment = (form.get("comment") or [""])[0].strip()[:2000] or None
+        try:
+            link = runtime.action_link(token)
+            decided = await runtime.act(token, comment=comment)
+        except AuthenticationError as exc:
+            return pages.message("This link can't be used", str(exc), status=401)
+        except NotFoundError:
+            return pages.message("Nothing to answer", "That approval isn't there.", status=404)
+        except ApprovalClosedError as exc:
+            return pages.message("Already answered", str(exc), status=409)
+        except (ApprovalForbiddenError, PolicyDeniedError) as exc:
+            return pages.message("You can't answer this", str(exc), status=403)
+        return pages.answered(link, decided)
 
     @api.get("/v1/apps/{app}/runs")
     async def list_runs(
@@ -905,6 +1175,80 @@ def create_app(  # noqa: PLR0915 - the route table
             return True
         return (await runtime.authorize(caller, PolicyAction.AUDIT_READ)).allowed
 
+    # ------------------------------------------------------------------ feedback
+
+    @api.post("/v1/apps/{app}/runs/{run_id}/feedback", status_code=201)
+    async def give_feedback(
+        app: str, run_id: str, request: FeedbackRequest, caller: FeedbackGiver
+    ) -> dict[str, Any]:
+        """Rate or correct what a run, or one of its steps, did (FR-HUM-09)."""
+        installed(app, caller.tenant)
+        try:
+            given = FeedbackGiven(by=caller.principal, **request.model_dump())
+            found = await runtime.give_feedback(caller, app, run_id, given)
+        except ValidationError as exc:
+            raise HTTPException(422, exc.errors()[0]["msg"]) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except NotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except PolicyDeniedError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        return found.view()
+
+    @api.get("/v1/apps/{app}/feedback")
+    async def feedback(app: str, caller: RunReader, run: str | None = None) -> list[dict[str, Any]]:
+        installed(app, caller.tenant)
+        return [f.view() for f in await runtime.feedback(caller.tenant, app, run_id=run)]
+
+    @api.get("/v1/apps/{app}/feedback/cases")
+    async def feedback_cases(app: str, caller: EvalReader) -> list[dict[str, Any]]:
+        """Evaluation cases from corrections, to add to an Evaluation's ``spec.cases``."""
+        installed(app, caller.tenant)
+        cases = await runtime.feedback_cases(caller.tenant, app)
+        return [case.model_dump(mode="json", exclude_defaults=True) for case in cases]
+
+    # ------------------------------------------------------------------ work for people
+
+    @api.get("/v1/tasks")
+    async def tasks(caller: TaskWorker, everyone: bool = False) -> list[dict[str, Any]]:
+        """Open work assigned to people that you can do (FR-HUM-08). ``everyone`` is for
+        operators: all of the tenant's."""
+        if authenticator is None:
+            everyone = True
+        elif everyone and not (await runtime.authorize(caller, PolicyAction.RUN_CONTROL)).allowed:
+            raise HTTPException(403, "only an operator sees everyone's work")
+        return [t.view() for t in await runtime.human.assigned(caller, everyone=everyone)]
+
+    @api.get("/v1/tasks/{task_id}")
+    async def task(task_id: str, caller: TaskWorker) -> dict[str, Any]:
+        found = await runtime.human.task(caller.tenant, task_id)
+        mine = found is not None and found.may_do(caller, await runtime.groups(caller.tenant))
+        if found is None or not (mine or authenticator is None):
+            raise HTTPException(404, f"no task {task_id}")
+        return found.view()
+
+    @api.post("/v1/tasks/{task_id}/complete")
+    async def complete_task(task_id: str, answer: TaskAnswer, caller: TaskWorker) -> dict[str, Any]:
+        """Do the work: the output goes back to the run as the task's result."""
+        try:
+            done = await runtime.complete_task(
+                caller,
+                task_id,
+                answer.output,
+                comment=answer.comment,
+                anyone=authenticator is None,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except NotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except PolicyDeniedError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        return done.view()
+
     @api.get("/v1/approvals")
     async def approvals(
         caller: ApprovalReader, status: ApprovalStatus = "pending", everyone: bool = False
@@ -925,7 +1269,12 @@ def create_app(  # noqa: PLR0915 - the route table
         return found.view()
 
     async def answered(
-        approval_id: str, caller: Identity, *, approve: bool, comment: str | None
+        approval_id: str,
+        caller: Identity,
+        *,
+        approve: bool,
+        comment: str | None,
+        edits: dict[str, JsonValue] | None = None,
     ) -> Approval:
         try:
             return await runtime.decide_approval(
@@ -934,7 +1283,10 @@ def create_app(  # noqa: PLR0915 - the route table
                 approve=approve,
                 comment=comment,
                 any_approver=authenticator is None,
+                edits=edits,
             )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         except NotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
         except ApprovalClosedError as exc:
@@ -947,14 +1299,18 @@ def create_app(  # noqa: PLR0915 - the route table
         approval_id: str, caller: ApprovalDecider, answer: ApprovalAnswer | None = None
     ) -> dict[str, Any]:
         comment = answer.comment if answer is not None else None
-        return (await answered(approval_id, caller, approve=True, comment=comment)).view()
+        edits = answer.edits if answer is not None else None
+        decided = await answered(approval_id, caller, approve=True, comment=comment, edits=edits)
+        return decided.view()
 
     @api.post("/v1/approvals/{approval_id}/deny")
     async def deny(
         approval_id: str, caller: ApprovalDecider, answer: ApprovalAnswer | None = None
     ) -> dict[str, Any]:
         comment = answer.comment if answer is not None else None
-        return (await answered(approval_id, caller, approve=False, comment=comment)).view()
+        edits = answer.edits if answer is not None else None  # refused: a no changes nothing
+        decided = await answered(approval_id, caller, approve=False, comment=comment, edits=edits)
+        return decided.view()
 
     @api.get("/v1/suspensions")
     async def suspensions(caller: Suspender) -> list[dict[str, Any]]:

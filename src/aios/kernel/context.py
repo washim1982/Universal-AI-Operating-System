@@ -15,7 +15,7 @@ from typing import Any, Literal, cast, overload
 
 from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 
-from aios.core.catalog import EmitStubbed, TaskBudget, Usage
+from aios.core.catalog import EmitStubbed, ModelToolCall, TaskBudget, Usage
 from aios.core.envelope import DataClass, Event
 from aios.core.errors import (
     AwaitingApproval,
@@ -42,8 +42,11 @@ from aios.core.ports import (
     ModelGateway,
     ModelRequest,
     ModelResponse,
+    ModelTool,
     ToolGateway,
+    model_tool_name,
     screened,
+    tool_name_of,
 )
 from aios.core.replay import holding_back
 from aios.core.taint import quoted
@@ -107,9 +110,14 @@ class _Sites:
         self.counts = {"model": 0, "tool": 0, "memory": 0, "emit": 0}
 
     def next(self, kind: Literal["model", "tool", "memory", "emit"]) -> CallSite:
+        site = self.peek(kind)
+        self.counts[kind] += 1
+        return site
+
+    def peek(self, kind: Literal["model", "tool", "memory", "emit"]) -> CallSite:
+        """The next site, without taking it: for what is asked about, not done."""
         context = self._context
         index = self.counts[kind]
-        self.counts[kind] = index + 1
         return CallSite(
             event=context.event,
             agent=context.agent,
@@ -190,6 +198,43 @@ class ModelAccess:
             return response.text
         return _structured(adapter, response)
 
+    async def complete(
+        self,
+        messages: list[Message] | str,
+        *,
+        tools: Sequence[ModelTool] = (),
+        tool_choice: Literal["auto", "required", "none"] | None = None,
+        task: str | None = None,
+        system: str | None = None,
+        output_schema: dict[str, Any] | None = None,
+        max_tokens: int = 16_000,
+        temperature: float | None = None,
+    ) -> ModelResponse:
+        """One model turn, as it came: its text and any tool calls it asks for (FR-MOD-01).
+
+        Asking is all the model does. Whether to call a tool is the agent's choice, and the call
+        goes through ``ctx.tools`` like any other, so policy, budgets and approvals apply.
+        """
+        context = self._context
+        context.budget.step()
+        request = ModelRequest(
+            task=task or context.definition.model_task,
+            system=system,
+            messages=[Message(role="user", content=messages)]
+            if isinstance(messages, str)
+            else messages,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            data_class=context.data_class,
+            tools=list(tools),
+            tool_choice=tool_choice,
+        )
+        response = await self._gateway.generate(request, context.sites.next("model"))
+        context.responses.append(response)
+        context.budget.add(response.usage)
+        return response
+
     async def embed(self, texts: list[str] | str, *, task: str = "embedding") -> list[list[float]]:
         """One vector per text, from the model the policy routes ``task`` to."""
         context = self._context
@@ -259,6 +304,38 @@ class ToolAccess:
             raise
         await context.admit(result.output, f"tool:{name}", untrusted=result.untrusted)
         return result.output
+
+    async def describe(self, *names: str) -> list[ModelTool]:
+        """The tools ``names``, as a model is told about them (``ctx.model.complete(tools=...)``).
+
+        A model sees ``search.web.query`` as ``search__web__query``: providers allow no dots.
+        """
+        found: list[ModelTool] = []
+        for name in names:
+            described = await self._gateway.describe(name, self._context.sites.peek("tool"))
+            found.append(
+                ModelTool(
+                    name=model_tool_name(described.name),
+                    description=described.description,
+                    parameters=dict(described.input_schema),
+                )
+            )
+        return found
+
+    async def call(
+        self,
+        call: ModelToolCall,
+        *,
+        idempotency_key: str | None = None,
+        rationale: str | None = None,
+    ) -> JsonValue:
+        """Make a call a model asked for, through Tool OS like any other."""
+        return await self.invoke(
+            tool_name_of(call.name),
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+            **call.arguments,
+        )
 
 
 class MemoryAccess:

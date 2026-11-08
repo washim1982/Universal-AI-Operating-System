@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { FeedbackForm } from "@/components/FeedbackForm";
 import { Refresher } from "@/components/Refresher";
 import { RestartForm } from "@/components/RestartForm";
 import { RunControls } from "@/components/RunControls";
@@ -41,6 +42,7 @@ export default async function RunPage({
         failed={drawn.nodes.find((node) => node.status === "failed")?.id ?? null}
       />
       <TraceExplorer trace={drawn} />
+      <FeedbackForm app={app} id={id} steps={drawn.nodes.map((node) => node.id)} />
       {live && <Refresher every={LIVE} />}
     </div>
   );

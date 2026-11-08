@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/approval.escalated/1",
+  "additionalProperties": false,
+  "description": "Nobody answered in time: more people are asked (FR-HUM-05).",
+  "properties": {
+    "approval": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Approval",
+      "type": "string"
+    },
+    "level": {
+      "minimum": 1,
+      "title": "Level",
+      "type": "integer"
+    },
+    "approvers": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Approvers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "approval",
+    "level",
+    "approvers"
+  ],
+  "title": "approval.escalated v1 payload",
+  "type": "object"
+}

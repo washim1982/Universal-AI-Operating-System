@@ -217,6 +217,19 @@ class PostgresSecurityStore(SecurityStore):
             )
         return frozenset(found or ())
 
+    async def holders(self, tenant: str, role: str) -> list[str]:
+        await self._tables.ready()
+        async with self.bus.pool.acquire() as connection:
+            rows = await connection.fetch(
+                self.bus.sql(
+                    "SELECT principal FROM {s}.principals WHERE tenantid = $1 AND $2 = ANY(roles) "
+                    "ORDER BY principal"
+                ),
+                tenant,
+                role,
+            )
+        return [str(row["principal"]) for row in rows]
+
     async def suspend(self, suspension: Suspension) -> None:
         await self._execute(
             "INSERT INTO {s}.suspensions (tenantid, kind, name, reason, by_whom, at) "

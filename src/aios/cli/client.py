@@ -63,6 +63,31 @@ class Client:
     def compare(self, app: str, a: str, b: str) -> Any:
         return self._json(self.http.get(f"/v1/apps/{app}/runs/{a}/compare/{b}"))
 
+    def groups(self) -> Any:
+        return self._json(self.http.get("/v1/groups"))
+
+    def set_group(self, group: str, members: list[str]) -> Any:
+        return self._json(self.http.put(f"/v1/groups/{group}", json={"members": members}))
+
+    def experiment_run(self, app: str, body: dict[str, Any]) -> Any:
+        return self._json(self.http.post(f"/v1/apps/{app}/experiments", json=body))
+
+    def experiments(self, app: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/experiments"))
+
+    def experiment(self, app: str, experiment: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/experiments/{experiment}"))
+
+    def experiment_compare(self, app: str, a: str, b: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/experiments/{a}/compare/{b}"))
+
+    def experiment_grade(self, app: str, experiment: str, body: dict[str, Any]) -> Any:
+        path = f"/v1/apps/{app}/experiments/{experiment}/grades"
+        return self._json(self.http.post(path, json=body))
+
+    def online(self, app: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/evaluations/online"))
+
     def install(self, bundle: Bundle, config: dict[str, Any] | None = None) -> Any:
         body = {"bundle": bundle.model_dump(mode="json"), "config": config}
         return self._json(self.http.post("/v1/installations", json=body))
@@ -109,6 +134,18 @@ class Client:
         return str(
             self._json(self.http.post(f"/v1/apps/{app}/runs", json={"message": message}))["run_id"]
         )
+
+    def app(self, app: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}"))
+
+    def runs(self, app: str, limit: int = 50) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/runs", params={"limit": limit}))
+
+    def trace_of(self, app: str, run_id: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/runs/{run_id}/trace"))
+
+    def agents(self) -> Any:
+        return self._json(self.http.get("/v1/agents"))
 
     def run(self, app: str, run_id: str) -> Any:
         return self._json(self.http.get(f"/v1/apps/{app}/runs/{run_id}"))
@@ -189,6 +226,26 @@ class Client:
         body = {"item": item, "subject": subject}
         return self._json(self.http.post("/v1/memory/forget", json=body))
 
+    def give_feedback(self, app: str, run: str, body: dict[str, Any]) -> Any:
+        return self._json(self.http.post(f"/v1/apps/{app}/runs/{run}/feedback", json=body))
+
+    def feedback(self, app: str, run: str | None) -> Any:
+        params = {"run": run} if run else {}
+        return self._json(self.http.get(f"/v1/apps/{app}/feedback", params=params))
+
+    def feedback_cases(self, app: str) -> Any:
+        return self._json(self.http.get(f"/v1/apps/{app}/feedback/cases"))
+
+    def tasks(self, everyone: bool) -> Any:
+        return self._json(self.http.get("/v1/tasks", params={"everyone": everyone}))
+
+    def task(self, task: str) -> Any:
+        return self._json(self.http.get(f"/v1/tasks/{task}"))
+
+    def complete_task(self, task: str, output: Any, comment: str | None) -> Any:
+        body = {"output": output, "comment": comment}
+        return self._json(self.http.post(f"/v1/tasks/{task}/complete", json=body))
+
     def approvals(self, status: str, everyone: bool) -> Any:
         params: dict[str, Any] = {"status": status, "everyone": everyone}
         return self._json(self.http.get("/v1/approvals", params=params))
@@ -196,8 +253,16 @@ class Client:
     def approval(self, approval: str) -> Any:
         return self._json(self.http.get(f"/v1/approvals/{approval}"))
 
-    def answer(self, approval: str, verdict: str, comment: str | None) -> Any:
-        body = {"comment": comment}
+    def answer(
+        self,
+        approval: str,
+        verdict: str,
+        comment: str | None,
+        edits: dict[str, Any] | None = None,
+    ) -> Any:
+        body: dict[str, Any] = {"comment": comment}
+        if edits:
+            body["edits"] = edits
         return self._json(self.http.post(f"/v1/approvals/{approval}/{verdict}", json=body))
 
     def ingest(self, app: str, body: dict[str, Any]) -> Any:

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/human.task.completed/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "task": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Task",
+      "type": "string"
+    },
+    "by": {
+      "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+      "title": "By",
+      "type": "string"
+    },
+    "output": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "task",
+    "by"
+  ],
+  "title": "human.task.completed v1 payload",
+  "type": "object"
+}

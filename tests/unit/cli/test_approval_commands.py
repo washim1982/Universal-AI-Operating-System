@@ -88,3 +88,40 @@ def test_a_webhook_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
     webhook = approval_webhook()
     assert webhook is not None
     assert (webhook.url, webhook.secret) == ("https://chat.example/hook", "shh")
+
+
+def test_an_approver_can_change_what_is_approved(
+    server: list[httpx2.Request], capsys: pytest.CaptureFixture[str]
+) -> None:
+    edits = ["--edit", "amount=80", "--edit", "note=half, it arrived late", "--edit", 'to={"a":1}']
+    assert main(["approvals", "approve", APPROVAL, *edits]) == 0
+    assert json.loads(server[0].content) == {
+        "comment": None,
+        "edits": {"amount": 80, "note": "half, it arrived late", "to": {"a": 1}},
+    }
+
+
+@pytest.mark.parametrize("bad", ["amount", "=80"])
+def test_an_edit_is_a_name_and_a_value(server: list[httpx2.Request], bad: str) -> None:
+    with pytest.raises(SystemExit, match="--edit takes NAME=VALUE"):
+        main(["approvals", "approve", APPROVAL, "--edit", bad])
+    assert server == []
+
+
+def test_groups_are_listed_and_set(
+    server: list[httpx2.Request], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["groups", "list"]) == 0
+    members = ["--member", "user:ann@acme", "--member", "user:bob@acme"]
+    assert main(["groups", "set", "finance", *members]) == 0
+    assert [(r.method, r.url.path) for r in server] == [
+        ("GET", "/v1/groups"),
+        ("PUT", "/v1/groups/finance"),
+    ]
+    assert json.loads(server[1].content) == {"members": ["user:ann@acme", "user:bob@acme"]}
+
+
+def test_a_group_to_set_needs_a_name(server: list[httpx2.Request]) -> None:
+    with pytest.raises(SystemExit, match="name"):
+        main(["groups", "set"])
+    assert server == []

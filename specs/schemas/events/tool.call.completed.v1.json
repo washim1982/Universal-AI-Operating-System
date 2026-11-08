@@ -48,6 +48,11 @@
       "description": "Answered from a recorded run",
       "title": "Replayed",
       "type": "boolean"
+    },
+    "arguments": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "What it was called with, when an approver changed the request"
     }
   },
   "required": [

@@ -38,6 +38,7 @@ _ENDS = {
     "step.failed": "step",
     "task.completed": "task",
     "task.failed": "task",
+    "task.suspended": "task",  # it waits for a person, and a new task carries on
     "tool.call.completed": "tool",
     "tool.call.failed": "tool",
 }
@@ -115,8 +116,21 @@ class EventTracer:
         if event.type in _ENDS:
             start = self._start_of(event)
             if start is not None:
-                return [self._interval(start, event)]
+                ended = [self._interval(start, event)]
+                if start.type == "task.requested":
+                    ended += self._unfinished_tools(start, event)
+                return ended
         return []
+
+    def _unfinished_tools(self, task: Event, end: Event) -> list[ReadableSpan]:
+        """Tool calls a task asked for and never finished: one that waits for a person ends the
+        task, and the call is made again by the task that carries on."""
+        waiting = [
+            key
+            for key, e in self._open.items()
+            if e.type == "tool.call.requested" and e.causationid == task.id
+        ]
+        return [self._interval(self._open.pop(key), end) for key in waiting]
 
     def _start_of(self, end: Event) -> Event | None:
         kind = _ENDS[end.type]
@@ -210,6 +224,7 @@ class EventTracer:
         data: dict[str, Any] = start.data if isinstance(start.data, dict) else {}
         end_data: dict[str, Any] = end.data if isinstance(end.data, dict) else {}
         failed = end.type.endswith((".failed", ".cancelled"))
+        waits = {semconv.SUSPENDED: True} if end.type == "task.suspended" else {}
         if start.type == "run.started":
             name, attributes = (
                 f"run {data.get('workflow')}",
@@ -240,7 +255,7 @@ class EventTracer:
             parent=self._parent(start),
             started=start.time,
             ended=end.time,
-            attributes=attributes,
+            attributes={**attributes, **waits},
             failed=failed,
         )
 

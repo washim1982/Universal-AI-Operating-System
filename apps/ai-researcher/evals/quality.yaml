@@ -1,0 +1,52 @@
+# The AI Researcher's quality gate (FR-OBS-07, M3 exit 3). CI runs it on the recorded answers in
+# tests/cassettes/ai-researcher and compares it with baseline.json:
+#
+#   aios eval run apps/ai-researcher/evals/quality.yaml --app-dir apps/ai-researcher \
+#     --cassettes tests/cassettes/ai-researcher --baseline apps/ai-researcher/evals/baseline.json
+#
+# A prompt change is graded on new answers: record them with a real model (--cassette-mode record),
+# and the gate blocks the change if they score lower than the baseline.
+apiVersion: aios/v1alpha1
+kind: Evaluation
+metadata: {name: research-quality, version: 0.1.0}
+spec:
+  app: ai-researcher
+  cases:
+    - id: otel-genai-2026
+      input: {message: "What changed in the OpenTelemetry GenAI semantic conventions in 2026?"}
+  graders:
+    - name: report-shape
+      type: schema
+      schema:
+        type: object
+        required: [title, summary, sections, sources]
+        properties:
+          title: {type: string, minLength: 1}
+          summary: {type: string, minLength: 40}
+          sections:
+            type: array
+            minItems: 2
+            items:
+              type: object
+              required: [heading, text, sources]
+              properties:
+                sources: {type: array, minItems: 1}
+          sources: {type: array, minItems: 2, items: {type: string, pattern: "^https://"}}
+    - name: cites-the-spec
+      type: regex
+      path: sources
+      pattern: "https://opentelemetry\\.io/docs/specs/semconv/gen-ai/"
+    - name: on-topic
+      type: contains
+      path: title
+      value: OpenTelemetry
+    - name: grounded
+      type: grounded
+      path: sections
+      weight: 2
+  gate:
+    minScore: 0.75
+    maxRegression: 0
+    # The recording predates the current research, writer and reviewer prompts at five calls. Record
+    # it again with a model, then make this "fail": a stale recording can't vouch for a prompt.
+    onDrift: warn

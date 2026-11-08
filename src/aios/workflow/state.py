@@ -44,6 +44,8 @@ class Decision:
     event: Event
     approved: bool
     by: str | None = None
+    payload: Any = None
+    """What the approver approved, if they changed it (FR-HUM-06)."""
 
 
 @dataclass
@@ -330,7 +332,9 @@ class RunState:
                 step.approval = str(data.get("approval"))
 
     def _on_approval_granted(self, event: Event, data: dict[str, Any], position: int) -> None:
-        self.decisions[str(data["approval"])] = Decision(event, True, str(data["by"]))
+        self.decisions[str(data["approval"])] = Decision(
+            event, True, str(data["by"]), data.get("payload")
+        )
 
     def _on_approval_denied(self, event: Event, data: dict[str, Any], position: int) -> None:
         self.decisions[str(data["approval"])] = Decision(event, False, str(data["by"]))

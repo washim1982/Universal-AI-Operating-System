@@ -32,6 +32,8 @@ testing = [  # for third-party adapters running the conformance suites in aios.t
     "pytest>=8.4",
     "pytest-asyncio>=1.0",
 ]
+langgraph = ["langgraph>=1.2,<2"]          # LangGraph graphs as AIOS agents (FR-INT-04)
+openai-agents = ["openai-agents>=0.24,<1"]  # OpenAI Agents SDK agents as AIOS agents (FR-INT-04)
 
 [project.scripts]
 aios = "aios.cli.main:main"
@@ -42,6 +44,9 @@ dev = [
     "ai-support-desk",
     "hypothesis>=6.130",
     "import-linter>=2.3",
+    "langgraph>=1.2,<2",
+    "mkdocs-material>=9.8",
+    "openai-agents>=0.24,<1",
     "pre-commit>=4.2",
     "pyright[nodejs]>=1.1.400",
     "pytest>=8.4",
@@ -102,6 +107,7 @@ ignore = [
 "tests/**" = ["S101", "PLR2004", "S311", "PLR0911"]
 "tests/e2e/**" = ["PLC0415"]  # imports inside tests, so a missing feature is an expected ImportError
 "src/aios/testing/**" = ["S101"]  # conformance suites are pytest code shipped in the package
+"src/aios/cli/templates/**/tests/**" = ["S101", "PLR2004"]  # each template's own tests
 "benchmarks/**" = ["S311", "T201"]
 "spikes/**" = ["S311", "T201"]  # throwaway experiments (spikes/README.md)
 
@@ -112,6 +118,8 @@ docstring-code-format = true
 
 [tool.pyright]
 include = ["src", "tests", "benchmarks"]
+# Templates import the package they will be copied into; tests/unit/cli runs each one's own tests.
+exclude = ["src/aios/cli/templates"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
@@ -156,7 +164,8 @@ name = "Layered architecture (ADR-001)"
 type = "layers"
 layers = [
     "aios.cli : aios.api : aios.sdk : aios.controlplane",
-    "aios.kernel | aios.workflow | aios.models | aios.tools | aios.memory | aios.security | aios.human | aios.observability",
+    "aios.adapters",
+    "aios.kernel | aios.workflow | aios.models | aios.tools | aios.memory | aios.security | aios.human | aios.observability | aios.evals",
     "aios.fabric",
     "aios.core",
 ]

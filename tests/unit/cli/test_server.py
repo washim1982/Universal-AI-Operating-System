@@ -146,3 +146,88 @@ async def test_an_open_stream_cant_hold_up_a_stop(monkeypatch: pytest.MonkeyPatc
     web.should_exit = True
     await asyncio.wait_for(running, 5)
     writer.close()
+
+
+CHANNEL_SETTINGS = (
+    "AIOS_SLACK_BOT_TOKEN",
+    "AIOS_TEAMS_WORKFLOW_URL",
+    "AIOS_SMTP_HOST",
+    "AIOS_SMTP_TLS",
+    "AIOS_SMTP_PORT",
+    "AIOS_EMAIL_FROM",
+    "AIOS_ACTION_LINK_SECRET",
+    "AIOS_PUBLIC_URL",
+)
+
+
+@pytest.fixture
+def no_channels(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for name in CHANNEL_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_no_channels_unless_asked(no_channels: pytest.MonkeyPatch) -> None:
+    assert server.approval_channels() == ([], None)
+
+
+def test_channels_from_the_environment(no_channels: pytest.MonkeyPatch) -> None:
+    no_channels.setenv("AIOS_SLACK_BOT_TOKEN", "xoxb-test")
+    no_channels.setenv("AIOS_TEAMS_WORKFLOW_URL", "https://teams.example/flow")
+    no_channels.setenv("AIOS_SMTP_HOST", "smtp.example")
+    no_channels.setenv("AIOS_SMTP_TLS", "ssl")
+    no_channels.setenv("AIOS_EMAIL_FROM", "aios@example.com")
+    no_channels.setenv("AIOS_ACTION_LINK_SECRET", "x" * 32)
+    no_channels.setenv("AIOS_PUBLIC_URL", "https://aios.example/")
+    channels, links = server.approval_channels()
+    assert [c.name for c in channels] == ["slack", "teams", "email"]
+    assert links is not None
+    assert links.base_url == "https://aios.example"
+    email = channels[2]
+    assert getattr(email, "deliver").port == 465  # noqa: B009 - ssl's port unless told
+
+
+@pytest.mark.parametrize(
+    ("settings", "complaint"),
+    [
+        ({"AIOS_SLACK_BOT_TOKEN": "xoxb-test"}, "AIOS_PUBLIC_URL and AIOS_ACTION_LINK_SECRET"),
+        (
+            {
+                "AIOS_SLACK_BOT_TOKEN": "xoxb-test",
+                "AIOS_PUBLIC_URL": "https://aios.example",
+                "AIOS_ACTION_LINK_SECRET": "short",
+            },
+            "at least 32",
+        ),
+        ({"AIOS_SMTP_HOST": "smtp.example"}, "AIOS_EMAIL_FROM"),
+        (
+            {"AIOS_SMTP_HOST": "smtp.example", "AIOS_EMAIL_FROM": "a@b.c", "AIOS_SMTP_TLS": "yes"},
+            "starttls, ssl or none",
+        ),
+    ],
+)
+def test_a_channel_setting_that_cant_work_stops_the_server(
+    no_channels: pytest.MonkeyPatch, settings: dict[str, str], complaint: str
+) -> None:
+    for name, value in settings.items():
+        no_channels.setenv(name, value)
+    with pytest.raises(SystemExit, match=complaint):
+        server.approval_channels()
+
+
+@pytest.mark.parametrize(("value", "seconds"), [(None, 120.0), ("30", 30.0), ("0.5", 0.5)])
+def test_how_long_a_client_waits_for_an_answer(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, seconds: float
+) -> None:
+    if value is None:
+        monkeypatch.delenv("AIOS_ANSWER_WAIT", raising=False)
+    else:
+        monkeypatch.setenv("AIOS_ANSWER_WAIT", value)
+    assert server.answer_wait() == seconds
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "soon", "901"])
+def test_a_wait_that_makes_no_sense_is_refused(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("AIOS_ANSWER_WAIT", value)
+    with pytest.raises(SystemExit, match="AIOS_ANSWER_WAIT"):
+        server.answer_wait()

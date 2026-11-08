@@ -1,0 +1,31 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: aios-template-app, version: 0.1.0}
+spec:
+  description: "Aios Template App refunds orders; big refunds wait for a person."
+  entrypoints:
+    - {type: chat, workflow: answer}
+  agents: [refund-agent]
+  workflows: [answer]
+  policies: [refunds]
+  permissions:
+    tools: ["orders.refund.create"]
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: refund-agent, version: 0.1.0}
+spec:
+  description: Reads a refund request and refunds the order.
+  runtime: {type: python, entrypoint: "aios_template_app.agents:refund"}
+  capabilities: [{name: refunding}]
+  tools: {allow: ["orders.refund.create"]}
+  model: {task: planning}
+  limits: {maxSteps: 5, maxCostUSD: 0.20, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${refund.output}"
+  steps:
+    - {id: refund, type: task, capability: refunding, input: {message: "${input.message}"}}

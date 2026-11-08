@@ -171,6 +171,23 @@
         }
       ],
       "default": null
+    },
+    "via": {
+      "anyOf": [
+        {
+          "enum": [
+            "openai",
+            "mcp"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Asked through the OpenAI-compatible endpoint or the MCP server",
+      "title": "Via"
     }
   },
   "title": "app.request.received v1 payload",

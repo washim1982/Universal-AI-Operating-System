@@ -24,6 +24,10 @@ event-sourced runtime that survives a crash. See the M1 status in the
 [implementation plan](implementation-plan.md) and [docs/traceability.md](docs/traceability.md)
 for what is done and what is open.
 
+**M3 "Developer Preview"** (Phase 3): all seven work packages are built, and exit criteria 2 to
+6 pass in automated tests. The milestone is still open: see the
+[Phase 3 review](docs/reviews/phase-3.md) for what blocks it and what the owner decides.
+
 - **Event fabric** (`aios.fabric`): the `EventBus` port with an in-memory and a PostgreSQL
   adapter (ADR-004); both pass one 37-case conformance suite. 1,000 events/s at p99 under 30 ms.
 - **Agent Kernel** (`aios.kernel`): agents written with `from aios import agent, Context`,
@@ -53,9 +57,13 @@ for what is done and what is open.
 - **Human OS** (`aios.human`): a tool call or workflow step can wait for a person. The run uses no
   compute meanwhile, survives restarts, and the action happens once or not at all. Silence means no,
   and whoever an action is for can't approve it. REST, a signed webhook and `aios approvals`
-  (WP 2.4, ADR-016).
+  (WP 2.4, ADR-016). Several approvers (n of m) from groups, reminders and escalation; approving a
+  changed action, which is checked against policy again; a tool's dry run in the request; Slack,
+  Teams and email with signed links of each person's own; steps done by people as by agents
+  (`aios tasks`); and feedback on runs that feeds memory and evaluations (WP 3.5, ADR-023).
 - **Console** (`console/`): a web app with no permissions of its own: it calls the API as the
-  person using it. Approvals (WP 2.6); and a Trace Explorer that draws a run's steps with their
+  person using it. Approvals (WP 2.6), with changes, dry runs and quorums, and Tasks (WP 3.5);
+  and a Trace Explorer that draws a run's steps with their
   model calls, tool calls, decisions and costs, Apps and consent, agents and the kill switch, costs
   and budgets, a policy simulator, a memory browser, and the event stream (WP 3.2).
 - **Installing Apps** (`aios app`, WP 3.1): an App version is a reproducible bundle, pushed to
@@ -67,6 +75,19 @@ for what is done and what is open.
   from its record, at no cost. Or fork it from a step with a new input, step input or model, with
   side effects held back. Or retry it from the step that failed, for real. Compare any two runs
   step by step (`aios replay`, `fork`, `retry`, `compare`, and in the console; ADR-021).
+- **Developer experience** (WP 3.6): `aios init` templates (chat, RAG, approval, people,
+  LangGraph, OpenAI Agents SDK), each with a test that passes as made; `aios describe` and
+  `aios validate`; tool calling in the Model Kernel; LangGraph and OpenAI Agents SDK agents hosted
+  as AIOS agents; the TypeScript client in `sdks/typescript`; the schema registry and a
+  compatibility check in CI; and a docs site (`uv run mkdocs serve`, ADR-024).
+- **OpenAI clients and MCP** (WP 3.7): any OpenAI SDK talks to an App at `/openai/v1`, with the
+  App's name as the model; MCP clients, such as assistants and IDEs, get each App as a tool at
+  `/mcp`. Every request is a run for the caller, with their roles; a run that waits for a person
+  says so, and no tool can approve for anyone (ADR-025).
+- **Evaluation** (WP 3.4): suites of cases with rule, schema, model and human graders, run as
+  experiments and compared across versions. `aios eval run` exits 1 when a change scores
+  below its baseline, and CI runs the AI Researcher's suite. A sample of production runs can
+  be graded as they finish, and retrieval is scored by recall@k and MRR (ADR-022).
 
 ## Quick start
 
@@ -192,15 +213,18 @@ src/aios/
   observability/  traces, metrics, timeline and logs from the event log
   security/       identity, Cedar policies, enforcement, audit chain, secrets
   memory/         Memory OS: scopes, ranking, ingestion, pgvector adapter
-  human/          Human OS: approvals, the inbox and the webhook
-  human/          Phase 2 (stub)
+  human/          Human OS: approvals, tasks for people, channels and signed links
+  evals/          graders and retrieval metrics for evaluations
+  adapters/       LangGraph and OpenAI Agents SDK agents as AIOS agents
   controlplane/   the composition root (Runtime) and App installation
-  api/ cli/ sdk/  access layer
-  testing/        conformance suites, LocalRuntime, fake MCP server
+  api/ cli/ sdk/  access layer; cli/templates/ holds the `aios init` templates
+  testing/        conformance suites, LocalRuntime, ScriptedModel, fake MCP server
 specs/            generated JSON Schemas + hand-written spec pages
 apps/             reference AI Apps: the AI Researcher and the AI Support Desk
 console/          the web console (Next.js)
+sdks/typescript/  the TypeScript client, @aios/client
 deploy/compose/   local stack
+docs/             the docs site (mkdocs.yml); docs/reference/ is generated
 docs/adr/         architecture decision records
 tests/            unit, conformance, e2e (acceptance), cassettes
 benchmarks/       fabric and policy benchmarks

@@ -36,7 +36,7 @@ action "model.route", "task.dispatch" appliesTo {
   resource: [Tenant],
   context: BaseContext
 };
-action "app.install", "app.manage", "app.read", "approval.decide", "approval.read", "audit.read", "dlq.manage", "event.read", "key.manage", "memory.manage", "metrics.read", "run.control", "run.read", "run.start", "security.suspend" appliesTo {
+action "app.install", "app.manage", "app.read", "approval.decide", "approval.read", "audit.read", "dlq.manage", "eval.grade", "eval.read", "eval.run", "event.read", "key.manage", "memory.manage", "metrics.read", "run.control", "run.feedback", "run.read", "run.start", "security.suspend", "task.work" appliesTo {
   principal: [User, Service],
   resource: [Tenant],
   context: BaseContext

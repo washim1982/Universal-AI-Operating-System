@@ -1,0 +1,11 @@
+apiVersion: aios/v1alpha1
+kind: Policy
+metadata: {name: refunds, version: 0.1.0}
+spec:
+  subject: {app: people-desk}
+  requireApproval:
+    - action: tool.invoke
+      resource: filesystem.file.write
+      approvers: ["role:support-lead"]
+      remindEvery: 30m
+      timeout: 1h

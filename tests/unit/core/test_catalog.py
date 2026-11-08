@@ -26,6 +26,7 @@ def test_commands_are_the_requested_events() -> None:
         "run.pause.requested",
         "run.resume.requested",
         "run.signal.requested",
+        "eval.experiment.requested",
     }
 
 

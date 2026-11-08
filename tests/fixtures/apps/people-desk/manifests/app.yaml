@@ -1,0 +1,44 @@
+# A small App for trying people in the loop (WP 3.5), with no model and no accounts to set up.
+# A support lead reviews each request first: that is work people provide, as an agent would
+# (FR-HUM-08). Then the refund itself waits for an approval, and the approver may change what is
+# written before saying yes (FR-HUM-06). A refund here is a file in the sandbox.
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: people-desk, version: 0.1.0}
+spec:
+  entrypoints: [{type: chat, workflow: refund}]
+  agents: [refund-agent]
+  workflows: [refund]
+  policies: [refunds]
+  humans:
+    - capability: refunds.review
+      assignees: ["role:support-lead"]
+      description: Check the customer's order, then say whether to refund it.
+      output:
+        type: object
+        required: [verdict]
+        properties:
+          verdict: {enum: [refund, refuse]}
+          note: {type: string}
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: refund-agent, version: 0.1.0}
+spec:
+  runtime: {type: python, entrypoint: "people_desk.agents:issue"}
+  capabilities: [{name: refunds.issue}]
+  tools: {allow: ["filesystem.file.write"]}
+  limits: {maxSteps: 5, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: refund, version: 0.1.0}
+spec:
+  output: "${issue.output}"
+  steps:
+    - {id: review, type: task, capability: refunds.review, input: {message: "${input.message}"}}
+    - id: issue
+      type: task
+      capability: refunds.issue
+      needs: [review]
+      input: {message: "${input.message}", review: "${review.output}"}

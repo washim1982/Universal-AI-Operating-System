@@ -45,6 +45,13 @@ class PolicyAction(StrEnum):
     KEY_MANAGE = "key.manage"
     SUSPEND = "security.suspend"
     METRICS_READ = "metrics.read"
+    EVAL_RUN = "eval.run"
+    EVAL_READ = "eval.read"
+    EVAL_GRADE = "eval.grade"
+    TASK_WORK = "task.work"
+    """See work assigned to people, and do it (FR-HUM-08)."""
+    RUN_FEEDBACK = "run.feedback"
+    """Rate or correct what a run did (FR-HUM-09)."""
 
 
 MEMORY_ACTIONS = frozenset({PolicyAction.MEMORY_READ, PolicyAction.MEMORY_WRITE})
@@ -131,6 +138,32 @@ class PolicyRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class Escalation:
+    """After ``after`` with no answer, ``approvers`` are asked as well (FR-HUM-05)."""
+
+    after: timedelta
+    approvers: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalTerms:
+    """How many must agree, and what happens while nobody does (FR-HUM-04, FR-HUM-05)."""
+
+    quorum: int = 1
+    """How many different approvers must say yes. One no is enough to refuse."""
+    remind_every: timedelta | None = None
+    escalation: tuple[Escalation, ...] = ()
+
+    def joined(self, other: ApprovalTerms) -> ApprovalTerms:
+        """The stricter of two: the larger quorum, the more frequent reminder, every escalation."""
+        reminders = [t for t in (self.remind_every, other.remind_every) if t is not None]
+        steps = sorted({*self.escalation, *other.escalation}, key=lambda e: (e.after, e.approvers))
+        return ApprovalTerms(
+            max(self.quorum, other.quorum), min(reminders) if reminders else None, tuple(steps)
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyDecision:
     effect: Effect
     policies: tuple[str, ...] = ()
@@ -141,6 +174,7 @@ class PolicyDecision:
     timeout: timedelta | None = None
     """How long a person has to answer, when a rule says."""
     on_timeout: OnTimeout = "deny"
+    terms: ApprovalTerms = ApprovalTerms()
 
     @property
     def allowed(self) -> bool:

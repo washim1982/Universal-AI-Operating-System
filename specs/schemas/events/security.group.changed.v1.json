@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/security.group.changed/1",
+  "additionalProperties": false,
+  "description": "A tenant's group and its members, as of now (FR-HUM-04).",
+  "properties": {
+    "group": {
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "title": "Group",
+      "type": "string"
+    },
+    "members": {
+      "items": {
+        "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+        "type": "string"
+      },
+      "title": "Members",
+      "type": "array"
+    }
+  },
+  "required": [
+    "group"
+  ],
+  "title": "security.group.changed v1 payload",
+  "type": "object"
+}

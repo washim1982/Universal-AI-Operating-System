@@ -23,7 +23,10 @@ CASSETTES = ROOT / "tests" / "cassettes" / "ai-researcher"
 NAME = "ai-researcher"
 OPERATOR = "system:platform"
 PUBLIC = {"/healthz"}
-SIGNED = {"/v1/hooks/{tenant}/{app}/{name}"}  # answers to a signature, not a role
+SIGNED = {  # answer to a signature, not a role
+    "/v1/hooks/{tenant}/{app}/{name}",
+    "/v1/act/{token}",
+}
 UNKNOWN = "01J0000000000000000000000A"
 MANIFEST = """
 apiVersion: aios/v1alpha1
@@ -83,6 +86,7 @@ def _filled(path: str) -> str:
         path.replace("{app}", NAME)
         .replace("{run_id}", UNKNOWN)
         .replace("{other}", UNKNOWN)
+        .replace("{experiment}", UNKNOWN)
         .replace("{letter}", UNKNOWN)
         .replace("{key_id}", UNKNOWN)
         .replace("{item_id}", UNKNOWN)
@@ -169,6 +173,31 @@ async def test_malformed_authorization_is_refused(api: Api, header: str) -> None
         ("member", "POST", f"/v1/apps/{NAME}/runs/{UNKNOWN}/retry", 403),
         ("operator", "POST", f"/v1/apps/{NAME}/runs/{UNKNOWN}/retry", 404),
         ("auditor", "GET", f"/v1/apps/{NAME}/runs/{UNKNOWN}/compare/{UNKNOWN}", 404),
+        ("member", "POST", f"/v1/apps/{NAME}/experiments", 403),
+        ("auditor", "POST", f"/v1/apps/{NAME}/experiments", 403),
+        ("operator", "POST", f"/v1/apps/{NAME}/experiments", 422),
+        ("member", "GET", f"/v1/apps/{NAME}/experiments", 200),
+        ("auditor", "GET", f"/v1/apps/{NAME}/experiments/{UNKNOWN}", 404),
+        ("auditor", "POST", f"/v1/apps/{NAME}/experiments/{UNKNOWN}/grades", 403),
+        ("member", "GET", f"/v1/apps/{NAME}/evaluations/online", 200),
+        ("member", "GET", "/v1/groups", 403),
+        ("member", "GET", "/v1/me/contact", 200),
+        ("member", "PUT", "/v1/me/contact", 200),
+        ("member", "GET", "/v1/tasks", 200),
+        ("member", "GET", "/v1/schemas", 200),
+        ("auditor", "GET", "/v1/schemas/events/approval.granted", 200),
+        ("member", "GET", f"/v1/apps/{NAME}", 200),
+        ("auditor", "GET", "/v1/tasks", 403),
+        ("member", "GET", f"/v1/tasks/{UNKNOWN}", 404),
+        ("auditor", "POST", f"/v1/tasks/{UNKNOWN}/complete", 403),
+        ("member", "POST", f"/v1/apps/{NAME}/runs/{UNKNOWN}/feedback", 422),
+        ("auditor", "POST", f"/v1/apps/{NAME}/runs/{UNKNOWN}/feedback", 403),
+        ("member", "GET", f"/v1/apps/{NAME}/feedback", 200),
+        ("auditor", "GET", f"/v1/apps/{NAME}/feedback/cases", 200),
+        ("auditor", "GET", "/v1/groups", 403),
+        ("tenant-admin", "GET", "/v1/groups", 200),
+        ("operator", "PUT", "/v1/groups/finance", 403),
+        ("tenant-admin", "PUT", "/v1/groups/finance", 200),
     ],
 )
 async def test_roles_over_http(api: Api, role: str, method: str, path: str, status: int) -> None:

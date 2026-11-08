@@ -19,9 +19,10 @@ import tarfile
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import jsonschema
+import yaml
 
 from aios.core.apps import Bundle, Requested
 from aios.core.envelope import DataClass
@@ -36,6 +37,7 @@ from aios.core.manifests import (
     WebhookEntrypoint,
     WorkflowManifest,
     load_manifests,
+    manifest_files,
 )
 from aios.core.memory import MemoryScope
 
@@ -76,13 +78,23 @@ def _packed(source: Path) -> str:
     return base64.b64encode(gzip.compress(raw.getvalue(), mtime=0)).decode()
 
 
+def _as_yaml(file: Path) -> str:
+    """A manifest file as YAML documents: a JSON one becomes YAML, so a bundle is one stream."""
+    text = file.read_text("utf-8").strip()
+    if file.suffix != ".json":
+        return text
+    found = json.loads(text)
+    documents = cast(list[Any], found) if isinstance(found, list) else [found]
+    return "\n---\n".join(yaml.safe_dump(d, sort_keys=False).strip() for d in documents)
+
+
 def bundle_of(path: str | Path) -> Bundle:
     """Pack an App directory: ``manifests/``, ``policies/``, ``config.schema.json`` and ``src/``."""
     root = Path(path)
     if not (root / "manifests").is_dir():
         raise BundleError(f"{root} is not an App directory (no manifests/ folder)")
-    files = [f for folder in ("manifests", "policies") for f in sorted((root / folder).glob("*"))]
-    documents = "\n---\n".join(f.read_text("utf-8").strip() for f in files if f.suffix == ".yaml")
+    files = [f for folder in ("manifests", "policies") for f in manifest_files(root / folder)]
+    documents = "\n---\n".join(_as_yaml(f) for f in files)
     schema_file = root / "config.schema.json"
     schema = json.loads(schema_file.read_text("utf-8")) if schema_file.exists() else None
     code = _packed(root / "src") if (root / "src").is_dir() else None

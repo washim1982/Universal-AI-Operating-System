@@ -6,6 +6,9 @@ build/
 dist/
 .venv/
 
+# The docs site (mkdocs build)
+site/
+
 # The console
 node_modules/
 .next/

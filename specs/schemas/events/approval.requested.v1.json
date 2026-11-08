@@ -2,6 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aios://schemas/approval.requested/1",
   "$defs": {
+    "ApprovalEscalation": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "How long after the request, with no answer",
+          "format": "duration",
+          "title": "After",
+          "type": "string"
+        },
+        "approvers": {
+          "description": "Who is asked as well, from then",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Approvers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "after",
+        "approvers"
+      ],
+      "title": "ApprovalEscalation",
+      "type": "object"
+    },
     "JsonValue": {}
   },
   "additionalProperties": false,
@@ -130,6 +156,39 @@
       ],
       "title": "On Timeout",
       "type": "string"
+    },
+    "quorum": {
+      "default": 1,
+      "description": "How many different approvers must agree",
+      "minimum": 1,
+      "title": "Quorum",
+      "type": "integer"
+    },
+    "remind_every": {
+      "anyOf": [
+        {
+          "format": "duration",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Remind approvers this often",
+      "title": "Remind Every"
+    },
+    "preview": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "What the tool says the action would do: a dry run (FR-TOOL-07)"
+    },
+    "escalation": {
+      "items": {
+        "$ref": "#/$defs/ApprovalEscalation"
+      },
+      "title": "Escalation",
+      "type": "array"
     }
   },
   "required": [

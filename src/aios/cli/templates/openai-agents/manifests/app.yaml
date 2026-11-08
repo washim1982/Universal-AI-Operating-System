@@ -1,0 +1,29 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: aios-template-app, version: 0.1.0}
+spec:
+  description: "Aios Template App: an OpenAI Agents SDK agent on AIOS."
+  entrypoints:
+    - {type: chat, workflow: answer}
+  agents: [sdk-agent]
+  workflows: [answer]
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: sdk-agent, version: 0.1.0}
+spec:
+  description: An OpenAI Agents SDK agent. Its model calls go through AIOS, whichever model the
+    policy picks, and so do the AIOS tools in tools.allow, each one named exactly.
+  runtime: {type: "adapter:openai-agents", entrypoint: "aios_template_app.agents:build"}
+  capabilities: [{name: answering}]
+  model: {task: reasoning}
+  tools: {allow: []}
+  limits: {maxSteps: 10, maxCostUSD: 0.50, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${answer.output}"
+  steps:
+    - {id: answer, type: task, capability: answering, input: {message: "${input.message}"}}

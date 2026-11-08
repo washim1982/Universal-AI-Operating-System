@@ -29,6 +29,7 @@ from aios.core.identity import Identity
 from aios.core.ids import new_ulid
 from aios.core.manifests import ModelPolicyManifest, ModelRule
 from aios.fabric import EventBus, InMemoryEventBus, Scope
+from aios.human import ActionLinks, Channel
 from aios.kernel import Context, agent, definition_of
 from aios.kernel.definitions import Handler
 from aios.memory import MemoryService, SyncReport, documents_in
@@ -47,6 +48,8 @@ __all__ = [
 
 TERMINAL = ("run.completed", "run.failed", "run.cancelled")
 DEFAULT_TENANT = "acme"
+MODEL_PROVIDERS = ("anthropic", "openai", "google")
+"""What ``model=`` answers for: every provider the shipped model policy routes to."""
 AGENTS_APP = "local-agents"
 
 
@@ -126,7 +129,10 @@ class LocalRuntime:
         tenants: Sequence[str] = (),
         lease: float = 2.0,
         providers: Mapping[str, Provider] | None = None,
+        model: Provider | None = None,
         tool_providers: Sequence[ToolProvider] | None = None,
+        channels: Sequence[Channel] = (),
+        links: ActionLinks | None = None,
     ) -> None:
         mode: CassetteMode = cassette_mode or os.environ.get("AIOS_CASSETTE_MODE", "replay")  # type: ignore[assignment]
         self.cassette = Cassette.open(cassettes, mode) if cassettes is not None else None
@@ -139,7 +145,11 @@ class LocalRuntime:
         self._app_dirs: list[Path] = []
         self._app_config: Mapping[str, Any] | None = None
         self._pending: list[ToolProvider] = list(tool_providers or [])
-        self._providers = providers
+        self._providers = providers or (
+            dict.fromkeys(MODEL_PROVIDERS, model) if model is not None else None
+        )
+        self._channels = channels
+        self._links = links
         self.runtime: Runtime = None  # type: ignore[assignment] - set in __aenter__
 
     @classmethod
@@ -166,6 +176,8 @@ class LocalRuntime:
             providers=self._providers,
             lease=self._lease,
             sandbox=self.sandbox,
+            approval_channels=self._channels,
+            action_links=self._links,
         )
         for directory in self._app_dirs:
             for tenant in self.tenants:

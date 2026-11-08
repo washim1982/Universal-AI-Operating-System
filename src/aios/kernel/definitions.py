@@ -39,6 +39,8 @@ class AgentDefinition:
     """Default routing hint for ``ctx.model.generate`` (``spec.model.task``)."""
     input_type: Any = Any
     output_type: Any = Any
+    runtime: str = "python"
+    """``python``, or ``adapter:<framework>`` for an agent another framework built."""
 
     @property
     def principal_name(self) -> str:
@@ -116,8 +118,8 @@ def from_manifest(manifest: AgentManifest, handler: Handler | None = None) -> Ag
     if handler is None:
         if spec.runtime.type != "python" or spec.runtime.entrypoint is None:
             raise ValueError(
-                f"agent {manifest.metadata.name!r}: only python runtimes are hosted in-process "
-                "until WP 3.x (containers, A2A)"
+                f"agent {manifest.metadata.name!r}: runtime {spec.runtime.type!r} isn't hosted "
+                "here; python and adapter:<framework> agents are, and containers and A2A later"
             )
         handler = load_entrypoint(spec.runtime.entrypoint)
     base = definition_of(handler)
@@ -131,6 +133,7 @@ def from_manifest(manifest: AgentManifest, handler: Handler | None = None) -> Ag
         tools=spec.tools,
         memory=spec.memory,
         model_task=spec.model.task,
+        runtime=spec.runtime.type,
     )
 
 

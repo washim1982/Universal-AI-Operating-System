@@ -9,9 +9,10 @@ model accept any JSON until their work package defines one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from datetime import timedelta
+from typing import Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from aios.core.envelope import Principal
 from aios.core.ids import Ulid
@@ -158,6 +159,10 @@ class AppRequestReceived(Payload):
     )
     input: JsonValue = None
     source: RunSource | None = None
+    via: Literal["openai", "mcp"] | None = Field(
+        default=None,
+        description="Asked through the OpenAI-compatible endpoint or the MCP server",
+    )
 
 
 # --------------------------------------------------------------------------- run
@@ -272,7 +277,76 @@ class EmitStubbed(Payload):
     data: JsonValue = None
 
 
+# --------------------------------------------------------------------------- evaluation
+
+
+class EvalExperimentRequested(Payload):
+    """Run an evaluation suite against an App (FR-OBS-07). One worker takes it."""
+
+    suite: dict[str, JsonValue] = Field(description="The Evaluation manifest, as JSON")
+    label: str | None = Field(default=None, description="What this experiment tries")
+
+
+class EvalExperimentStarted(Payload):
+    suite: str
+    suite_version: str
+    app_version: str | None = None
+    workflow_version: str | None = None
+    label: str | None = None
+    cases: int = Field(ge=0)
+    gate: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
+
+
+class EvalCaseStarted(Payload):
+    case: str
+    run: str | None = Field(default=None, description="The run the case started, if it did")
+
+
+class EvalCaseCompleted(Payload):
+    """A case, run and graded. Grades a person still owes are ``pending``."""
+
+    case: str
+    result: dict[str, JsonValue]
+
+
+class EvalCaseGraded(Payload):
+    """A person's grade, given after the case completed."""
+
+    case: str
+    grader: str
+    score: float = Field(ge=0, le=1)
+    comment: str | None = None
+
+
+class EvalExperimentCompleted(Payload):
+    score: float | None = None
+    passed: int = 0
+    failed: int = 0
+    pending: int = 0
+    drifted: int = 0
+    cost_usd: float = 0.0
+    metrics: dict[str, float] = Field(default_factory=dict[str, float])
+
+
+class EvalRunGraded(Payload):
+    """A production run sampled for online evaluation, and its grades."""
+
+    score: float | None = None
+    grades: list[dict[str, JsonValue]] = Field(default_factory=list[dict[str, JsonValue]])
+
+
 # --------------------------------------------------------------------------- model, tool
+
+
+class ModelToolCall(BaseModel):
+    """A tool the model asks to call (FR-MOD-01). Asking is all a model does: the agent decides,
+    and calls it through Tool OS, where policy, budgets and approvals apply as to any call."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=200, description="The provider's id for the call")
+    name: str = Field(min_length=1, max_length=64)
+    arguments: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
 
 
 class ModelCallCompleted(Payload):
@@ -304,6 +378,14 @@ class ModelCallCompleted(Payload):
     )
     request_hash: str | None = Field(
         default=None, description="What was asked, so a replay can tell when it asks otherwise"
+    )
+    drifted: bool = Field(
+        default=False,
+        description="Answered from a recording that was made for another request",
+    )
+    tool_calls: list[ModelToolCall] = Field(
+        default_factory=list[ModelToolCall],
+        description="The tools the model asked to call, recorded for replay (FR-MOD-01)",
     )
 
 
@@ -339,6 +421,9 @@ class ToolCallCompleted(Payload):
         default=False, description="Not run: a replay or fork held the side effect back"
     )
     replayed: bool = Field(default=False, description="Answered from a recorded run")
+    arguments: JsonValue = Field(
+        default=None, description="What it was called with, when an approver changed the request"
+    )
 
 
 class ToolCallFailed(Payload):
@@ -405,6 +490,11 @@ class MemoryDocumentSynced(Payload):
 # --------------------------------------------------------------------------- approval
 
 
+class ApprovalEscalation(Payload):
+    after: timedelta = Field(description="How long after the request, with no answer")
+    approvers: list[str] = Field(min_length=1, description="Who is asked as well, from then")
+
+
 class ApprovalRequested(Payload):
     """What an approver sees (FR-HUM-03)."""
 
@@ -427,12 +517,63 @@ class ApprovalRequested(Payload):
     item: int | None = Field(default=None, ge=0)
     expires_at: AwareDatetime
     on_timeout: OnTimeout = "deny"
+    quorum: int = Field(default=1, ge=1, description="How many different approvers must agree")
+    remind_every: timedelta | None = Field(default=None, description="Remind approvers this often")
+    preview: JsonValue = Field(
+        default=None, description="What the tool says the action would do: a dry run (FR-TOOL-07)"
+    )
+    escalation: list[ApprovalEscalation] = Field(default_factory=list[ApprovalEscalation])
 
 
 class ApprovalDecided(Payload):
     approval: Ulid
     by: Principal
     comment: str | None = None
+    voters: list[Principal] = Field(
+        default_factory=list[str], description="With a quorum: everyone whose yes it took"
+    )
+    edits: dict[str, JsonValue] | None = Field(
+        default=None, description="What the approver changed (FR-HUM-06)"
+    )
+    payload: JsonValue = Field(default=None, description="With edits: the action as approved")
+    via: str | None = Field(
+        default=None, description="Answered with a signed link sent by slack, teams or email"
+    )
+
+
+class ApprovalModified(Payload):
+    """The approver changed the action before saying yes (FR-HUM-06)."""
+
+    approval: Ulid
+    by: Principal
+    edits: dict[str, JsonValue]
+    payload: JsonValue
+
+
+class ApprovalVoted(Payload):
+    """One yes of the several a quorum needs (FR-HUM-04)."""
+
+    approval: Ulid
+    by: Principal
+    comment: str | None = None
+    votes: int = Field(ge=1)
+    quorum: int = Field(ge=2)
+    via: str | None = Field(
+        default=None, description="Answered with a signed link sent by slack, teams or email"
+    )
+
+
+class ApprovalReminded(Payload):
+    approval: Ulid
+    count: int = Field(ge=1, description="The how-many-th reminder")
+
+
+class ApprovalEscalated(Payload):
+    """Nobody answered in time: more people are asked (FR-HUM-05)."""
+
+    approval: Ulid
+    level: int = Field(ge=1)
+    approvers: list[str] = Field(min_length=1)
 
 
 class ApprovalExpired(Payload):
@@ -445,7 +586,68 @@ class ApprovalCancelled(Payload):
     reason: str = ""
 
 
+class HumanTaskAssigned(Payload):
+    """Work for people: a capability they provide, as agents provide theirs (FR-HUM-08)."""
+
+    task: Ulid = Field(description="The task.requested event this is the work of")
+    capability: CapabilityName
+    assignees: list[str] = Field(
+        min_length=1, description="Principals, role:<name> or group:<name>: any one of them"
+    )
+    description: str = ""
+    input: JsonValue = None
+    output_schema: dict[str, JsonValue] | None = Field(
+        default=None, description="A JSON Schema the answer must match"
+    )
+    step: str | None = None
+    item: int | None = Field(default=None, ge=0)
+
+
+class HumanTaskCompleted(Payload):
+    task: Ulid
+    by: Principal
+    output: JsonValue = None
+    comment: str | None = None
+
+
+class HumanTaskCancelled(Payload):
+    task: Ulid
+    reason: str = ""
+
+
+class FeedbackGiven(Payload):
+    """A person's view of what a run, or one of its steps, did (FR-HUM-09)."""
+
+    by: Principal
+    step: str | None = Field(default=None, description="The step it is about; the run if not set")
+    rating: Literal["good", "bad"] | None = None
+    correction: JsonValue = Field(default=None, description="What a right result would have been")
+    comment: str | None = Field(default=None, max_length=2000)
+    remember: bool = Field(default=False, description="Kept in the App's memory as well")
+
+    @model_validator(mode="after")
+    def _says_something(self) -> Self:
+        if self.rating is None and self.correction is None and not self.comment:
+            raise ValueError("feedback needs a rating, a correction or a comment")
+        return self
+
+
 # --------------------------------------------------------------------------- security
+
+
+class GroupChanged(Payload):
+    """A tenant's group and its members, as of now (FR-HUM-04)."""
+
+    group: str = Field(pattern=r"^[A-Za-z0-9._-]+$")
+    members: list[Principal] = Field(default_factory=list[str])
+
+
+class ContactChanged(Payload):
+    """Where a person can be told about approvals, as they set it themselves (FR-HUM-07)."""
+
+    principal: Principal
+    email: str | None = None
+    slack: str | None = Field(default=None, description="A Slack member id")
 
 
 class PolicyDecided(Payload):
@@ -590,6 +792,7 @@ _MEMORY = "Memory OS"
 _HUMAN = "Human OS"
 _SECURITY = "Security Kernel"
 _FABRIC = "Event Fabric"
+_EVALS = "Evaluator"
 
 STANDARD_EVENTS: tuple[EventSpec, ...] = (
     _spec(
@@ -710,12 +913,36 @@ STANDARD_EVENTS: tuple[EventSpec, ...] = (
     ),
     _spec("approval.granted", _HUMAN, "The approval was granted.", ApprovalDecided),
     _spec("approval.denied", _HUMAN, "The approval was denied.", ApprovalDecided),
-    _spec("approval.modified", _HUMAN, "The approver changed the proposed action."),
+    _spec(
+        "approval.modified",
+        _HUMAN,
+        "The approver changed the proposed action.",
+        ApprovalModified,
+    ),
     _spec("approval.expired", _HUMAN, "No decision before the timeout.", ApprovalExpired),
-    _spec("approval.escalated", _HUMAN, "The approval moved to the next approver tier."),
+    _spec("approval.voted", _HUMAN, "One of the yeses a quorum needs.", ApprovalVoted),
+    _spec("approval.reminded", _HUMAN, "Approvers were reminded.", ApprovalReminded),
+    _spec(
+        "approval.escalated",
+        _HUMAN,
+        "Nobody answered in time: the next tier of approvers was asked as well.",
+        ApprovalEscalated,
+    ),
     _spec("approval.cancelled", _HUMAN, "The run no longer needs the approval.", ApprovalCancelled),
-    _spec("human.task.assigned", _HUMAN, "Work assigned to a person."),
-    _spec("human.task.completed", _HUMAN, "A person completed assigned work."),
+    _spec("human.task.assigned", _HUMAN, "Work assigned to people.", HumanTaskAssigned),
+    _spec("human.task.completed", _HUMAN, "A person did the work.", HumanTaskCompleted),
+    _spec(
+        "human.task.cancelled",
+        _HUMAN,
+        "The run no longer needs the work.",
+        HumanTaskCancelled,
+    ),
+    _spec(
+        "human.feedback.given",
+        _HUMAN,
+        "A person rated or corrected what a run did.",
+        FeedbackGiven,
+    ),
     _spec("policy.decision.allowed", _SECURITY, "A governed action was allowed.", PolicyDecided),
     _spec("policy.decision.denied", _SECURITY, "A governed action was denied.", PolicyDecided),
     _spec(
@@ -731,6 +958,13 @@ STANDARD_EVENTS: tuple[EventSpec, ...] = (
         InjectionSuspected,
     ),
     _spec("security.key.created", _SECURITY, "An API key was created.", KeyChanged),
+    _spec("security.group.changed", _SECURITY, "A group's members were set.", GroupChanged),
+    _spec(
+        "security.contact.changed",
+        _SECURITY,
+        "A person set where they are told about approvals.",
+        ContactChanged,
+    ),
     _spec("security.key.revoked", _SECURITY, "An API key was revoked.", KeyChanged),
     _spec(
         "security.suspended",
@@ -746,6 +980,23 @@ STANDARD_EVENTS: tuple[EventSpec, ...] = (
         "A hard budget limit was hit.",
         BudgetExceeded,
     ),
+    _spec(
+        "eval.experiment.requested",
+        _ACCESS,
+        "Someone asked for an evaluation suite to be run (FR-OBS-07).",
+        EvalExperimentRequested,
+    ),
+    _spec("eval.experiment.started", _EVALS, "An experiment began.", EvalExperimentStarted),
+    _spec("eval.case.started", _EVALS, "A case of an experiment began.", EvalCaseStarted),
+    _spec("eval.case.completed", _EVALS, "A case was run and graded.", EvalCaseCompleted),
+    _spec("eval.case.graded", _ACCESS, "A person graded a case.", EvalCaseGraded),
+    _spec(
+        "eval.experiment.completed",
+        _EVALS,
+        "Every case of an experiment was run.",
+        EvalExperimentCompleted,
+    ),
+    _spec("eval.run.graded", _EVALS, "A sampled production run was graded.", EvalRunGraded),
     _spec("system.dlq.added", _FABRIC, "An event was dead-lettered (FR-EVT-08).", DeadLetterAdded),
     _spec("system.consumer.lagging", _FABRIC, "A consumer group is falling behind."),
 )

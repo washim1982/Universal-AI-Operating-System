@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/eval.case.started/1",
+  "additionalProperties": false,
+  "properties": {
+    "case": {
+      "title": "Case",
+      "type": "string"
+    },
+    "run": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The run the case started, if it did",
+      "title": "Run"
+    }
+  },
+  "required": [
+    "case"
+  ],
+  "title": "eval.case.started v1 payload",
+  "type": "object"
+}

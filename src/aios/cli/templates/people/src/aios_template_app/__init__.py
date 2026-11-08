@@ -1,0 +1,1 @@
+"""Aios Template App."""

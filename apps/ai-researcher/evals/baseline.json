@@ -1,0 +1,110 @@
+{
+  "experiment": "01M6Q85GG5SWXJVSFCVPHR63PE",
+  "app": "ai-researcher",
+  "suite": "research-quality",
+  "suite_version": "0.1.0",
+  "app_version": "0.1.0",
+  "workflow_version": "1.1.0",
+  "label": null,
+  "status": "completed",
+  "started_at": "2026-11-06T01:39:27.366984Z",
+  "ended_at": "2026-11-06T01:39:27.621344Z",
+  "by": "user:anonymous",
+  "gate": {
+    "min_score": 0.75,
+    "max_regression": 0.0,
+    "on_drift": "warn"
+  },
+  "cases": [
+    {
+      "case": "otel-genai-2026",
+      "run": "01M6Q85GG73AQ2KDTKZCVDDX84",
+      "status": "completed",
+      "output": {
+        "title": "OpenTelemetry GenAI semantic conventions in 2026",
+        "summary": "The GenAI conventions are still in Development status. In 2026 they cover inference spans and metrics with token usage, and model agent invocations and tool calls as their own spans.",
+        "sections": [
+          {
+            "heading": "Stability",
+            "text": "Still Development; adopt behind the opt-in flag.",
+            "sources": [
+              "https://opentelemetry.io/docs/specs/semconv/gen-ai/"
+            ]
+          },
+          {
+            "heading": "Spans and metrics",
+            "text": "Token usage and model identity on spans and metrics.",
+            "sources": [
+              "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/",
+              "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/"
+            ]
+          },
+          {
+            "heading": "Agents and tools",
+            "text": "Agent and tool-call spans show each step of a run.",
+            "sources": [
+              "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/"
+            ]
+          }
+        ],
+        "sources": [
+          "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+          "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/",
+          "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/",
+          "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/"
+        ]
+      },
+      "error": null,
+      "grades": [
+        {
+          "grader": "report-shape",
+          "score": 1.0,
+          "passed": true,
+          "reason": "",
+          "weight": 1.0,
+          "by": null
+        },
+        {
+          "grader": "cites-the-spec",
+          "score": 1.0,
+          "passed": true,
+          "reason": "",
+          "weight": 1.0,
+          "by": null
+        },
+        {
+          "grader": "on-topic",
+          "score": 1.0,
+          "passed": true,
+          "reason": "",
+          "weight": 1.0,
+          "by": null
+        },
+        {
+          "grader": "grounded",
+          "score": 0.5714285714285714,
+          "passed": false,
+          "reason": "not supported: Still Development; adopt behind the opt-in flag.",
+          "weight": 2.0,
+          "by": null
+        }
+      ],
+      "cost_usd": 0.0909437,
+      "drifted": 5,
+      "metrics": {},
+      "score": 0.8285714285714285
+    }
+  ],
+  "score": 0.828571,
+  "passed": 1,
+  "failed": 0,
+  "pending": 0,
+  "drifted": 5,
+  "cost_usd": 0.0909437,
+  "metrics": {
+    "cites-the-spec": 1.0,
+    "grounded": 0.571429,
+    "on-topic": 1.0,
+    "report-shape": 1.0
+  }
+}

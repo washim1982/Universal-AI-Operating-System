@@ -1,0 +1,74 @@
+# The docs site (WP 3.6): `uv run mkdocs serve`, or `uv run mkdocs build --strict` as CI does.
+# The reference pages are generated: `uv run aios docs reference`.
+site_name: AIOS
+site_description: An operating system for AI agents
+docs_dir: docs
+strict: true
+repo_url: https://github.com/washim1982/Universal-AI-Operating-System
+edit_uri: edit/main/docs/
+hooks:
+  - docs/hooks.py
+exclude_docs: |
+  hooks.py
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/brightness-7, name: Dark}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/brightness-4, name: Light}
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+
+validation:
+  omitted_files: info
+  absolute_links: info
+  unrecognized_links: info
+  anchors: warn
+  links:
+    not_found: warn
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts: concepts.md
+  - Guides:
+      - Build agents: guides/agents.md
+      - Other frameworks: guides/frameworks.md
+      - TypeScript client: guides/typescript.md
+      - OpenAI clients and MCP: guides/clients.md
+      - User guide: user-guide.md
+      - Testing guide: testing-guide.md
+  - Reference:
+      - Commands: reference/cli.md
+      - API: reference/api.md
+      - Events: reference/events.md
+      - Manifests: reference/manifests.md
+  - Design:
+      - Decisions: adr/README.md
+      - Threat model: threat-model.md
+      - Security review: security-review.md
+      - Phase 3 review: reviews/phase-3.md
+      - Requirements: traceability.md
+      - Editions: editions.md

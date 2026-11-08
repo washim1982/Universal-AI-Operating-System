@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/human.feedback.given/1",
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "description": "A person's view of what a run, or one of its steps, did (FR-HUM-09).",
+  "properties": {
+    "by": {
+      "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+      "title": "By",
+      "type": "string"
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The step it is about; the run if not set",
+      "title": "Step"
+    },
+    "rating": {
+      "anyOf": [
+        {
+          "enum": [
+            "good",
+            "bad"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rating"
+    },
+    "correction": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "What a right result would have been"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    },
+    "remember": {
+      "default": false,
+      "description": "Kept in the App's memory as well",
+      "title": "Remember",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "by"
+  ],
+  "title": "human.feedback.given v1 payload",
+  "type": "object"
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/security.contact.changed/1",
+  "additionalProperties": false,
+  "description": "Where a person can be told about approvals, as they set it themselves (FR-HUM-07).",
+  "properties": {
+    "principal": {
+      "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+      "title": "Principal",
+      "type": "string"
+    },
+    "email": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Email"
+    },
+    "slack": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "A Slack member id",
+      "title": "Slack"
+    }
+  },
+  "required": [
+    "principal"
+  ],
+  "title": "security.contact.changed v1 payload",
+  "type": "object"
+}

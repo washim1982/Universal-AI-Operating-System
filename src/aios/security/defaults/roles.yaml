@@ -8,6 +8,10 @@ spec:
   allow:
     - action: approval.read
     - action: approval.decide
+    - action: task.work
+    - action: run.feedback
+    - action: eval.read
+    - action: eval.grade
     - action: app.read
     - action: run.start
     - action: run.read
@@ -24,6 +28,7 @@ spec:
   subject: { role: auditor }
   allow:
     - action: approval.read
+    - action: eval.read
     - action: app.read
     - action: run.read
     - action: event.read
@@ -37,6 +42,11 @@ spec:
   allow:
     - action: approval.read
     - action: approval.decide
+    - action: task.work
+    - action: run.feedback
+    - action: eval.read
+    - action: eval.grade
+    - action: eval.run
     - action: app.read
     - action: run.start
     - action: run.read
@@ -57,6 +67,11 @@ spec:
   allow:
     - action: approval.read
     - action: approval.decide
+    - action: task.work
+    - action: run.feedback
+    - action: eval.read
+    - action: eval.grade
+    - action: eval.run
     - action: app.read
     - action: run.start
     - action: run.read
@@ -83,6 +98,11 @@ spec:
   allow:
     - action: approval.read
     - action: approval.decide
+    - action: task.work
+    - action: run.feedback
+    - action: eval.read
+    - action: eval.grade
+    - action: eval.run
     - action: app.install
     - action: app.manage
     - action: app.read

@@ -19,6 +19,7 @@ from aios.core.envelope import Event
 from aios.core.manifests import (
     AgentManifest,
     AppManifest,
+    EvaluationManifest,
     ModelPolicyManifest,
     PolicyManifest,
     WorkflowManifest,
@@ -88,6 +89,9 @@ def render_specs(extra: Mapping[str, str] | None = None) -> dict[str, str]:
         "schemas/manifests/model-policy.v1alpha1.json": _schema(
             ModelPolicyManifest, "aios://schemas/manifests/model-policy/v1alpha1"
         ),
+        "schemas/manifests/evaluation.v1alpha1.json": _schema(
+            EvaluationManifest, "aios://schemas/manifests/evaluation/v1alpha1"
+        ),
         "event-catalog.md": _catalog_markdown(),
     }
     for spec in catalog.STANDARD_EVENTS:
@@ -96,6 +100,59 @@ def render_specs(extra: Mapping[str, str] | None = None) -> dict[str, str]:
                 spec.payload, spec.schema_id, title=f"{spec.type} v{spec.version} payload"
             )
     return {**files, **(extra or {})}
+
+
+MANIFEST_KINDS = {
+    "agent": AgentManifest,
+    "app": AppManifest,
+    "workflow": WorkflowManifest,
+    "policy": PolicyManifest,
+    "model-policy": ModelPolicyManifest,
+    "evaluation": EvaluationManifest,
+}
+
+
+def registry() -> dict[str, Any]:
+    """What the schema registry holds (FR-EVT-10): every event type and manifest kind."""
+    return {
+        "events": [
+            {
+                "type": spec.type,
+                "version": spec.version,
+                "kind": spec.kind.value,
+                "emitted_by": spec.emitted_by,
+                "description": spec.description,
+                "route_by": spec.route_by,
+                "schema": f"/v1/schemas/events/{spec.type}" if spec.payload else None,
+            }
+            for spec in catalog.STANDARD_EVENTS
+        ],
+        "manifests": [
+            {"kind": kind, "version": "v1alpha1", "schema": f"/v1/schemas/manifests/{kind}"}
+            for kind in MANIFEST_KINDS
+        ],
+        "envelope": "/v1/schemas/envelope",
+    }
+
+
+def event_schema(event_type: str) -> dict[str, Any] | None:
+    """An event type's payload schema, as ``specs/`` holds it; ``None`` for one without."""
+    spec = catalog.get(event_type)
+    if spec is None or spec.payload is None:
+        return None
+    text = _schema(spec.payload, spec.schema_id, title=f"{spec.type} v{spec.version} payload")
+    return json.loads(text)
+
+
+def manifest_schema(kind: str) -> dict[str, Any] | None:
+    model = MANIFEST_KINDS.get(kind)
+    if model is None:
+        return None
+    return json.loads(_schema(model, f"aios://schemas/manifests/{kind}/v1alpha1"))
+
+
+def envelope_schema() -> dict[str, Any]:
+    return json.loads(_schema(Event, "aios://schemas/envelope/1"))
 
 
 def _orphans(root: Path, files: dict[str, str]) -> list[Path]:

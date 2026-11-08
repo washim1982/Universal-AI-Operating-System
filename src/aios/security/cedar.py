@@ -28,10 +28,17 @@ from typing import Any, Literal
 import cedarpy
 
 from aios.core.errors import InvalidPolicyError
-from aios.core.manifests import ApprovalRule, Comparison, PolicyManifest, PolicyRule
+from aios.core.manifests import (
+    ApprovalRule,
+    Comparison,
+    PolicyManifest,
+    PolicyRule,
+    approval_terms,
+)
 from aios.core.policy import (
     MEMORY_ACTIONS,
     Actor,
+    ApprovalTerms,
     Effect,
     OnTimeout,
     PolicyAction,
@@ -79,6 +86,7 @@ class CompiledRule:
     approvers: tuple[str, ...] = ()
     timeout: timedelta | None = None
     on_timeout: OnTimeout = "deny"
+    terms: ApprovalTerms = field(default_factory=ApprovalTerms)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +145,12 @@ class _Compiler:
                 if isinstance(rule, ApprovalRule):
                     self.rules.append(
                         CompiledRule(
-                            rule_id, kind, tuple(rule.approvers), rule.timeout, rule.on_timeout
+                            rule_id,
+                            kind,
+                            tuple(rule.approvers),
+                            rule.timeout,
+                            rule.on_timeout,
+                            approval_terms(rule),
                         )
                     )
                 else:
@@ -365,6 +378,7 @@ class CedarDecisionPoint(PolicyDecisionPoint):
                     "allowed once approved",
                     timeout,
                     on_timeout,
+                    _joined(rule.terms for rule in rules),
                 )
         return PolicyDecision(
             Effect.DENY,
@@ -480,4 +494,13 @@ def _intersect(decisions: Sequence[PolicyDecision]) -> PolicyDecision:
         "allowed once approved",
         timeout,
         on_timeout,
+        _joined(d.terms for d in approvals),
     )
+
+
+def _joined(terms: Iterable[ApprovalTerms]) -> ApprovalTerms:
+    """The strictest terms of every rule that asks: each must be satisfied."""
+    found = ApprovalTerms()
+    for each in terms:
+        found = found.joined(each)
+    return found

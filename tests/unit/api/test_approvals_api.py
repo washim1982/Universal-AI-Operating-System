@@ -167,6 +167,64 @@ async def test_the_approver_sees_it_answers_it_and_the_refund_happens(api: Api) 
     assert api.refunds == [120]
 
 
+async def test_an_approver_can_change_what_is_done(api: Api) -> None:
+    alice = await api.bearer("alice", "member")
+    lead = await api.bearer("lead", "member", "lead")
+    run, approval = await api.asked(alice)
+    answered = await _approve(api, approval, lead, edits={"amountUSD": 80})
+    assert answered.status_code == 200, answered.text
+    assert answered.json()["edits"] == {"amountUSD": 80}
+    assert answered.json()["payload"] == {"amountUSD": 120}  # as asked
+    assert await _finished(api, run) == "completed"
+    assert api.refunds == [80]
+
+
+@pytest.mark.parametrize(
+    ("verdict", "edits", "status"),
+    [
+        ("approve", {"account": "mine"}, 422),  # only what the action already has
+        ("deny", {"amountUSD": 1}, 403),  # a no changes nothing
+    ],
+)
+async def test_what_an_approver_cant_change(
+    api: Api, verdict: str, edits: dict[str, Any], status: int
+) -> None:
+    alice = await api.bearer("alice", "member")
+    lead = await api.bearer("lead", "member", "lead")
+    _, approval = await api.asked(alice)
+    response = await api.http.post(
+        f"/v1/approvals/{approval}/{verdict}", headers=lead, json={"edits": edits}
+    )
+    assert response.status_code == status, response.text
+    assert (await api.http.get("/v1/approvals", headers=lead)).json()[0]["status"] == "pending"
+
+
+async def test_a_tenant_admin_sets_who_is_in_a_group(api: Api) -> None:
+    admin = await api.bearer("admin", "tenant-admin")
+    put = await api.http.put(
+        "/v1/groups/finance", headers=admin, json={"members": ["user:bob@acme", "user:ann@acme"]}
+    )
+    assert put.status_code == 200, put.text
+    assert put.json() == {"group": "finance", "members": ["user:ann@acme", "user:bob@acme"]}
+    listed = (await api.http.get("/v1/groups", headers=admin)).json()
+    assert listed == {"finance": ["user:ann@acme", "user:bob@acme"]}
+    other = await api.bearer("admin", "tenant-admin", tenant="globex")
+    assert (await api.http.get("/v1/groups", headers=other)).json() == {}
+
+
+@pytest.mark.parametrize(
+    ("group", "members"),
+    [
+        ("finance", ["user:eve@globex"]),  # someone of another tenant
+        ("fin ance", []),  # not a name
+    ],
+)
+async def test_a_bad_group_is_refused(api: Api, group: str, members: list[str]) -> None:
+    admin = await api.bearer("admin", "tenant-admin")
+    response = await api.http.put(f"/v1/groups/{group}", headers=admin, json={"members": members})
+    assert response.status_code == 422, response.text
+
+
 async def test_a_denial_stops_the_refund(api: Api) -> None:
     alice = await api.bearer("alice", "member")
     lead = await api.bearer("lead", "member", "lead")

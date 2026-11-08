@@ -24,6 +24,8 @@ class Identity:
     """``user:<sub>@<tenant>``, ``service:<key name>@<tenant>`` or, locally, ``user:anonymous``."""
     tenant: str
     roles: frozenset[str] = frozenset()
+    groups: frozenset[str] = frozenset()
+    """Groups the identity provider says this person is in; the tenant's directory adds more."""
 
     @property
     def actor(self) -> Actor:
@@ -94,6 +96,10 @@ class SecurityStore(ABC):
 
     @abstractmethod
     async def roles(self, tenant: str, principal: str) -> frozenset[str]: ...
+
+    @abstractmethod
+    async def holders(self, tenant: str, role: str) -> list[str]:
+        """The tenant's principals that have ``role``, as last signed in or given a key."""
 
     # ------------------------------------------------------------------ the kill switch
 

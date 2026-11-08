@@ -50,6 +50,7 @@ your section. To test AIOS step by step rather than use it, see the
 | **Console** | Most people. Runs and their traces, approvals, Apps, agents, costs, policies, memory, events | A web page. Ask your administrator for its address |
 | **`aios` command** | Administrators, operators and developers. Everything the console does, and more | Comes with AIOS. Set it up once in each terminal: see [Setting up a terminal](#setting-up-a-terminal) |
 | **API** | Other systems, and your own apps | HTTP with JSON, at `/v1/...`. Every request carries a credential |
+| **OpenAI clients and AI assistants** | Programs that already speak OpenAI's API, and assistants and IDEs that use MCP tools | `/openai/v1` with an App's name as the model, or the MCP server at `/mcp`: see [Ask from an OpenAI client or an AI assistant](#ask-from-an-openai-client-or-an-ai-assistant) |
 
 The console has no permissions of its own: it calls the API as the person using it. So you can do
 the same things in the console, with the command and through the API, and AIOS decides each time
@@ -293,6 +294,25 @@ API keys keep working beside sign-in, for services.
 
 Set these where the **worker** runs: it makes the model and tool calls.
 
+### Tell approvers on Slack, Teams or email
+
+Each person who can answer an approval gets their own **Approve** and **Deny** links. Set these
+where the **worker** runs, and set the link settings on the API as well:
+
+| What | Set |
+|---|---|
+| Where people reach the API (for the links) | `AIOS_PUBLIC_URL`, for example `https://aios.example.com` |
+| The links' signing secret, 32 characters or more | `AIOS_ACTION_LINK_SECRET`. Changing it ends every link sent so far |
+| Slack | `AIOS_SLACK_BOT_TOKEN`: a Slack app's bot token with `chat:write`. It needs no request URL |
+| Microsoft Teams | `AIOS_TEAMS_WORKFLOW_URL`: a Teams workflow that starts on a webhook request and posts the card to its `recipient` |
+| Email | `AIOS_SMTP_HOST`, `AIOS_EMAIL_FROM`, and if needed `AIOS_SMTP_PORT`, `AIOS_SMTP_USER`, `AIOS_SMTP_PASSWORD`, `AIOS_SMTP_TLS` (`starttls`, `ssl` or `none`) |
+
+People give their own addresses, under their name in the console. You can't set them for anyone:
+an address set by someone else would send that person's links to someone else.
+
+Keep `AIOS_ACTION_LINK_SECRET` like any other secret. Whoever has a link can answer as its person
+until the approval expires, so a reverse proxy's access log, which holds the links, is sensitive.
+
 A tool's credentials reach it only if its App lists them under `spec.config.secrets`. AIOS reads
 them from Vault if `VAULT_ADDR` and `VAULT_TOKEN` are set, from an encrypted file if
 `AIOS_SECRETS_FILE` and `AIOS_SECRETS_KEY` are set, and otherwise from `AIOS_SECRET_<NAME>`. To use
@@ -398,6 +418,21 @@ aios keys revoke <key-id>
 
 A revoked key stops working at once. If your organisation uses an identity provider, people's
 roles come from it instead, and keys are for services.
+
+### Make groups of approvers
+
+A rule can name a group, such as `group:finance`, instead of a role. Groups come from your identity
+provider (set `AIOS_OIDC_GROUPS_CLAIM` to the claim that lists them), or you keep them in AIOS:
+
+```bash
+aios groups set finance --member user:ann@acme --member user:bob@acme
+```
+
+```bash
+aios groups list
+```
+
+Members must be of your tenant. A group with no members is gone.
 
 ### Agree to an App
 
@@ -633,6 +668,27 @@ aios dlq discard <id>
 `redrive` sends it again, after you have fixed the cause. `discard` removes it. In the console,
 open **Events**: under **Dead letters**, **Try again** and **Drop** do the same.
 
+### Evaluate a version
+
+Run a suite on the App as it is installed. It spends what its runs and judges cost, so it needs an
+operator or an administrator:
+
+```bash
+aios eval run apps/ai-researcher/evals/quality.yaml --label "after the upgrade"
+```
+
+```bash
+aios eval list --app ai-researcher
+```
+
+```bash
+aios eval compare <experiment-id> <other-experiment-id> --app ai-researcher
+```
+
+Each case runs as an ordinary run on your behalf, so it shows under **Runs**. `compare` shows the
+two experiments' scores side by side, case by case and grader by grader. `aios eval online --app
+<app>` lists the production runs graded as they finished.
+
 ### Keep an eye on cost
 
 Open **Costs** in the console: spending this month by App, agent, model and user, against each
@@ -676,6 +732,63 @@ follow it live at `.../events`.
 Some actions need a person's agreement first, such as a large refund. Your run then waits: it
 shows `paused`, waiting for `approval:...`. It carries on when someone answers. Nobody acting for
 you can approve it: whoever an action is for can't approve it.
+
+### Ask from an OpenAI client or an AI assistant
+
+Programs that speak OpenAI's API, and AI assistants that use MCP tools, can ask an App too, with
+your API key. What you can do through them is what your key can do: the App's rules, budgets and
+approvals apply as to any run, and the run shows up under **Runs** with its trace.
+
+**From an OpenAI client:** set its base URL to your server's `/openai/v1`, its key to your AIOS
+API key, and use the App's name as the model. In Python:
+
+```python
+import os
+
+from openai import OpenAI
+
+client = OpenAI(
+    base_url=os.environ["AIOS_SERVER"] + "/openai/v1", api_key=os.environ["AIOS_API_KEY"]
+)
+reply = client.chat.completions.create(
+    model="ai-researcher",
+    messages=[{"role": "user", "content": "What changed in the OpenTelemetry GenAI conventions?"}],
+)
+print(reply.choices[0].message.content)
+```
+
+**Expected:** the App's answer. `client.models.list()` shows the Apps you can ask. The JavaScript
+SDK works the same way, with `baseURL`.
+
+**From an AI assistant or an IDE (MCP):** add an MCP server at your server's `/mcp`, over HTTP,
+with the header `Authorization: Bearer <your API key>`. For Claude Code, in bash:
+
+```bash
+claude mcp add --transport http aios "$AIOS_SERVER/mcp" --header "Authorization: Bearer $AIOS_API_KEY"
+```
+
+For VS Code, in `.vscode/mcp.json`:
+
+```json
+{
+  "inputs": [{"type": "promptString", "id": "aios-key", "description": "AIOS API key", "password": true}],
+  "servers": {
+    "aios": {"type": "http", "url": "https://aios.example.com/mcp", "headers": {"Authorization": "Bearer ${input:aios-key}"}}
+  }
+}
+```
+
+**Expected:** the assistant sees a tool `ask-<app>` for each App you can ask, and `run-status`.
+
+Give an assistant a key of its own, with only the roles it needs: it acts for you, and what it reads
+can try to steer it.
+
+**When there is no answer yet:** a run that waits for a person, or takes longer than the server
+waits (two minutes unless your administrator changed it), comes back with a message that says so,
+for example `Run 01M6... is waiting for approval 01M6... (Refund $120) from role:lead`. The run
+carries on. Ask again later: an assistant uses `run-status`; anyone can open the run in the console
+or run `aios status <run-id> --app <app>`. An assistant can't approve anything for you: there is no
+tool for it, and the approver decides as usual.
 
 ### See what happened
 
@@ -762,6 +875,8 @@ Open a request. Before you answer, read:
 
 - **What would happen**: the exact action and its values, for example
   `pay.refund.create(amountUSD=120)`.
+- **What the tool says it would do**, if it can say: a dry run, such as "would refund $120.00
+  for order 1001". Nothing has happened yet.
 - **The risk**, and the policy that asked for you.
 - **The agent's rationale**. It is the agent's claim, written by a model, and the console labels it
   so. If the run read untrusted content, the request says so: the rationale may have been written
@@ -778,6 +893,83 @@ aios approvals approve <approval-id> --comment "Checked the order: it arrived br
 ```bash
 aios approvals deny <approval-id> --comment "Outside the return window"
 ```
+
+### Change it before you approve
+
+You can approve a smaller refund than the agent asked for. In the console, open **Change something
+before approving**, change a value, and press **Approve**. With the command, give each change as
+`NAME=VALUE`; a value is read as JSON, or as text:
+
+```bash
+aios approvals approve <approval-id> --edit amountUSD=60 --comment "Half: it arrived late"
+```
+
+AIOS checks the changed action against the policies again before it runs. A change that would need
+more approval than yours, such as raising a refund past the next limit, is refused, and so is
+anything the policies forbid. Only a yes can change something, only the values the action already
+has, and not when several people must agree.
+
+### When several people must agree
+
+A rule can ask for two or more approvers (`quorum: 2`). Each of you answers on your own. The
+request shows how many have said yes, and it goes ahead when enough have. One no stops it.
+
+### Answer from Slack, Teams or email
+
+If your administrator has set them up, AIOS tells you when an approval is waiting for you, with an
+**Approve** and a **Deny** link of your own. The link opens a page that shows what is asked and a
+button: nothing is decided until you press it. Tell AIOS where to reach you under your name, top
+right in the console (**You**):
+
+- **Email**: your address.
+- **Slack member ID**: in Slack, open your profile, then the three dots, then **Copy member ID**.
+
+Only you can set these. Don't forward the messages: whoever has a link can answer as you until the
+approval expires. If nobody answers in time, a rule may remind you, or ask someone else as well.
+
+### Do work assigned to you
+
+Some Apps ask a person to do a step, such as a legal review, as an agent would. The work waits
+under **Tasks** in the console, with what you are given and what the answer must look like. Write
+the result and press **Done**; it goes back to the run.
+
+```bash
+aios tasks list
+```
+
+```bash
+aios tasks complete <task-id> --field verdict=sign --comment "Standard terms"
+```
+
+Give each part of the result as `--field NAME=VALUE`, or the whole result as JSON with `--output`.
+In Windows PowerShell 5.1 use `--field`: it drops the quotes inside JSON. The first person to
+finish it wins, and the answer must fit what the task asks for.
+
+### Say what you thought of a run
+
+At the bottom of a run's page, **Feedback** takes a rating (good or bad), a correction (what a
+right result would have been) and a comment, about the whole run or one step. Tick **Keep it in
+the App's memory** to let its agents find it. A correction of a whole run can become an evaluation
+case.
+
+```bash
+aios feedback give <app> <run-id> --rating bad --correct answer=France --comment "Wrong country"
+```
+
+### Grade an evaluation
+
+A suite can ask a person to grade each case, naming who may: for example, everyone with the `qa`
+role. Its experiment waits, and can't pass its gate, until they have.
+
+```bash
+aios eval show <experiment-id> --app ai-researcher
+```
+
+```bash
+aios eval grade <experiment-id> --app ai-researcher --case otel-genai-2026 --grader tone --score 0.8 --comment "Clear, but long"
+```
+
+`--score` runs from 0 to 1. Look at the case's run under **Runs** first, to see what it answered.
 
 ### What to know
 
@@ -859,13 +1051,17 @@ budget and how much of it is used.
 ## App developer
 
 You build AI Apps: agents that use models and tools, workflows that put them in order, and
-policies that say what they may do.
+policies that say what they may do. The [quickstart](quickstart.md) takes you through it once;
+[Build agents](guides/agents.md) and [Other frameworks](guides/frameworks.md) go further.
 
 ### Create an App
 
 ```bash
-aios init my-app
+aios init my-app --template chat
 ```
+
+The templates are `chat`, `rag` (answers from the App's documents), `approval` (a tool, and a
+person who agrees to big actions), `people` (a step people do), `langgraph` and `openai-agents`.
 
 **Expected:** a folder `my-app` with:
 
@@ -873,7 +1069,11 @@ aios init my-app
 |---|---|
 | `manifests/app.yaml` | The App, its agent and its workflow |
 | `src/my_app/agents.py` | The agent's code |
-| `README.md` | How to run it |
+| `tests/test_app.py` | A test that runs the App with a stand-in model |
+| `README.md` | How to run, test and install it |
+
+Run its test with `pytest` in the folder, and check it with `aios validate my-app`. Add to it with
+`aios init agent <name> --app my-app` and `aios init tool <tool.name> --app my-app`.
 
 ### Run it on your machine
 
@@ -981,6 +1181,50 @@ spec:
       approvers: ["role:support-lead"]
 ```
 
+A rule can also ask for more than one person, remind them, and ask someone else if nobody
+answers in time:
+
+```yaml
+    - action: tool.invoke
+      resource: stripe.refund.create
+      when: {input: {amountUSD: {gt: 1000}}}
+      approvers: ["group:finance"]
+      quorum: 2
+      remindEvery: 30m
+      escalate:
+        - {after: 2h, approvers: ["role:cfo"]}
+```
+
+A native tool can say what it would do, for the approver to read:
+
+```python
+@tool("stripe.refund.create", side_effect=SideEffect.FINANCIAL)
+async def refund(order: str, amountUSD: float) -> dict: ...
+
+
+@refund.previewer
+async def what_it_would_do(order: str, amountUSD: float) -> str:
+    return f"would refund ${amountUSD:.2f} for order {order}"
+```
+
+A step can be done by people instead of an agent. List the capability under `spec.humans`, with
+who does it and what the answer must look like; a workflow step asks for it as for any other:
+
+```yaml
+spec:
+  humans:
+    - capability: legal.review
+      assignees: ["group:legal"]
+      description: Read the contract and say whether it can be signed.
+      output:
+        type: object
+        required: [verdict]
+        properties: {verdict: {enum: [sign, change]}}
+```
+
+A capability is people's or an agent's, not both. `tests/fixtures/apps/people-desk` is a small
+example of both: a review by a person, then an approval.
+
 Anything no rule allows is refused, and `deny` beats `allow`. List in `spec.permissions` the tools
 and data classes your App needs: a tenant administrator agrees to them at install, and anything
 they refuse is refused at runtime. `spec.egress` lists the sites your App's tools may reach.
@@ -1003,6 +1247,64 @@ When a run goes wrong, [replay or fork it](#replay-and-fork-a-run): replay shows
 repeatable, and a fork from the step that went wrong tries your change without doing anything for
 real. `aios compare` shows what changed.
 
+### Evaluate it
+
+A suite is a YAML file of cases, each an input and optionally the answer you expect, with the
+graders that score them and a gate. Keep it beside the App, in `evals/`:
+
+```yaml
+apiVersion: aios/v1alpha1
+kind: Evaluation
+metadata: {name: quality, version: 0.1.0}
+spec:
+  app: my-app
+  cases:
+    - id: hello
+      input: {message: "Hello"}
+  graders:
+    - {name: polite, type: contains, path: answer, value: hello}
+    - {name: helpful, type: judge, rubric: "Answers what was asked, briefly.", weight: 2}
+  gate: {minScore: 0.8, maxRegression: 0}
+```
+
+| Grader `type` | Scores |
+|---|---|
+| `exact` | The output at `path` equals `value`, or the case's `expected` |
+| `contains`, `regex` | The output's text contains `value`, or matches `pattern` |
+| `schema` | The output is valid against a JSON Schema |
+| `judge` | A model scores it against `rubric`, out of 10. It is your App's own governed agent, `aios-evaluator` |
+| `grounded` | The share of the answer's sentences that what the run read supports |
+| `human` | A person, one of `reviewers` such as `role:qa`, grades it later |
+
+A suite with `retrieval: {scopes: [app], k: 5}` tests search instead. Each case has a `query`, the
+`relevant` documents, and optionally an `answer`. It scores recall@k, reciprocal rank (MRR) and
+groundedness.
+
+Run it here, on your App's folder, with recorded answers:
+
+```bash
+aios eval run my-app/evals/quality.yaml --app-dir my-app --cassettes cassettes/my-app --out my-app/evals/baseline.json
+```
+
+**Expected:** each case with its grades, the score, and `gate: passed` or `gate: FAILED` with the
+reasons. The command exits 0 when the gate passes and 1 when it doesn't, so put it in CI with
+`--baseline my-app/evals/baseline.json`: a change that scores lower than the baseline fails the
+build. The AI Researcher's CI does this with `apps/ai-researcher/evals/quality.yaml`.
+
+When you change a prompt, record new answers with a real model (`--cassette-mode record`) and run
+the suite on them. A recording made for the old prompt is reported as `drifted`, and fails the gate
+unless the suite says `onDrift: warn`.
+
+To grade a sample of real runs as they finish, add to your App's spec:
+
+```yaml
+  evaluation:
+    online:
+      sample: 0.1
+      graders:
+        - {name: polite, type: contains, path: answer, value: hello}
+```
+
 ### Ship it
 
 ```bash
@@ -1024,10 +1326,21 @@ fixed: to change it, raise `metadata.version`.
 |---|---|---|---|
 | See the Apps | **Apps** | `aios get apps` | member |
 | Ask an App | the App's own page | `aios run <app> "<message>"` | member |
+| Ask from an OpenAI client | | base URL `<server>/openai/v1`, model `<app>` | member |
+| Ask from an AI assistant | | MCP server `<server>/mcp`, tools `ask-<app>` and `run-status` | member |
 | See a run and its trace | **Runs** → the run | `aios status`, `trace`, `logs` | member |
 | Replay or fork a run | run page → **Run again** | `aios replay`, `aios fork --from <step>` | member |
 | Compare two runs | **Compare the two** | `aios compare <a> <b> --app <app>` | member |
 | Answer an approval | **Approvals** | `aios approvals approve|deny <id>` | member, named by the rule |
+| Approve with a change | **Approvals** → **Change something** | `aios approvals approve <id> --edit name=value` | member, named by the rule |
+| Be told on Slack or email | your name → **You** | `PUT /v1/me/contact` | member |
+| Do work assigned to you | **Tasks** | `aios tasks list`, `aios tasks complete <id> --field name=value` | member, named by the App |
+| Rate or correct a run | run page → **Feedback** | `aios feedback give <app> <run> --rating good|bad` | member |
+| Corrections as eval cases | | `aios feedback cases <app>` | member, auditor |
+| Grade an evaluation | | `aios eval grade <id> --app <app> --case <c> --grader <g> --score <0-1>` | member, named by the grader |
+| Read evaluation results | | `aios eval list`, `show`, `compare`, `online` | member, auditor |
+| Run an evaluation | | `aios eval run <suite.yaml>` | operator |
+| Evaluate in CI, here | | `aios eval run <suite.yaml> --app-dir <folder> --baseline <file>` | none: no server |
 | Pause, resume, cancel | run page | `aios pause|resume|cancel <run> --app <app>` | operator |
 | Send a signal | | `aios signal <run> <name> --app <app>` | operator |
 | Retry for real | run page → **Retry for real** | `aios retry <run> --app <app>` | operator |
@@ -1038,6 +1351,7 @@ fixed: to change it, raise `metadata.version`.
 | Check the audit log | | `aios audit verify`, `aios audit list` | auditor, tenant-admin |
 | Everyone's approvals | **Approvals** → everyone's | `aios approvals list --all` | auditor |
 | Make or revoke keys | | `aios keys create|list|revoke` | tenant-admin |
+| Keep groups of approvers | | `aios groups set <name> --member <principal>`, `aios groups list` | tenant-admin |
 | Agree to an App | **Apps** → the App | `aios app consent <app>` | tenant-admin |
 | Configure, roll back | **Apps** → the App | `aios app configure`, `aios app rollback` | tenant-admin |
 | Uninstall an App | **Apps** → the App | `aios app uninstall <app> --data retain` (or `export`, `delete`) | tenant-admin |

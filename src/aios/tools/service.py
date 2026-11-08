@@ -70,6 +70,7 @@ from aios.core.ports import (
     NoSecrets,
     Proposal,
     SecretStore,
+    ToolDescription,
     ToolGateway,
     ToolResult,
 )
@@ -280,9 +281,9 @@ class ToolService(ToolGateway):
             held = holding_back(site.event)
             if held is not None and binding.spec.side_effect is not SideEffect.READ:
                 return await self._stubbed(binding, args, site, held.run)
-            await self._authorize(binding.spec, args, site, rationale)
+            called = await self._authorize(binding, args, site, rationale)
             started = time.perf_counter()
-            output = await self._execute(binding, args, site, idempotency_key)
+            output = await self._execute(binding, called, site, idempotency_key)
             latency = (time.perf_counter() - started) * 1000
             output = as_recorded(self._check_output(binding.spec, output))
         except Exception as exc:
@@ -305,6 +306,7 @@ class ToolService(ToolGateway):
                 latency_ms=round(latency, 1),
                 output=output,
                 untrusted=untrusted,
+                arguments=cast(JsonValue, called) if called != args else None,
             ).model_dump(mode="json"),
             tainted=untrusted,
         )
@@ -314,6 +316,13 @@ class ToolService(ToolGateway):
             provider=binding.provider.name,
             untrusted=untrusted,
             latency_ms=latency,
+        )
+
+    async def describe(self, name: str, site: CallSite) -> ToolDescription:
+        """What a tool does and takes, for a model to be told. Nothing is called or decided."""
+        spec = self.registry.resolve(name, site.event.tenantid).spec
+        return ToolDescription(
+            name=spec.name, description=spec.description, input_schema=spec.input_schema
         )
 
     async def _recorded(self, site: CallSite, name: str) -> ToolResult | None:
@@ -459,8 +468,10 @@ class ToolService(ToolGateway):
             raise ToolInputError(f"{spec.name}: {exc.message}") from exc
 
     async def _authorize(
-        self, spec: ToolSpec, arguments: dict[str, Any], site: CallSite, rationale: str | None
-    ) -> None:
+        self, binding: Binding, arguments: dict[str, Any], site: CallSite, rationale: str | None
+    ) -> dict[str, Any]:
+        """What to call the tool with: ``arguments``, or as an approver changed them."""
+        spec = binding.spec
         decision = await self._decide(spec, arguments, site)
         refused = None if decision.effect is Effect.DENY else self._refused(spec, arguments, site)
         if refused is not None:
@@ -471,8 +482,8 @@ class ToolService(ToolGateway):
         if decision.effect is Effect.DENY:
             raise ToolDeniedError(f"{spec.name}: {decision.reason or 'denied by policy'}")
         if decision.effect is Effect.ALLOW:
-            return
-        approval = await self.approvals.require(
+            return arguments
+        approved = await self.approvals.require(
             Proposal(
                 action=spec.name,
                 payload=arguments,
@@ -485,13 +496,38 @@ class ToolService(ToolGateway):
                 taint=site.taint,
                 timeout=decision.timeout,
                 on_timeout=decision.on_timeout,
+                terms=decision.terms,
+                preview=await self._preview(binding, arguments),
             ),
             site,
         )
-        decision = await self._decide(spec, arguments, site, approved=True)
-        await self._record_decision(site, spec.name, decision, approval=approval)
+        called = arguments
+        if isinstance(approved.payload, dict):  # an approver changed it (FR-HUM-06)
+            called = cast(dict[str, Any], approved.payload)
+            try:
+                self._validate_input(spec, called)
+            except ToolInputError as exc:  # an answer is final: asking again won't change it
+                raise ToolDeniedError(f"as changed, {exc}") from exc
+            again = await self._decide(spec, called, site)
+            beyond = set(again.policies) - set(decision.policies)
+            if again.effect is Effect.DENY or (again.effect is Effect.REQUIRE_APPROVAL and beyond):
+                await self._record_decision(site, spec.name, again)
+                why = again.reason if again.effect is Effect.DENY else "it needs another approval"
+                raise ToolDeniedError(f"{spec.name}: as changed, {why}")
+        decision = await self._decide(spec, called, site, approved=True)
+        await self._record_decision(site, spec.name, decision, approval=approved.approval)
         if not decision.allowed:
             raise ToolDeniedError(f"{spec.name}: {decision.reason or 'denied by policy'}")
+        return called
+
+    async def _preview(self, binding: Binding, arguments: dict[str, Any]) -> JsonValue:
+        """The tool's dry run, for the approver (FR-TOOL-07). One that fails shows nothing."""
+        try:
+            async with asyncio.timeout(binding.spec.timeout_s):
+                return await binding.provider.preview(binding.spec.name, arguments)
+        except Exception as exc:  # a preview is a courtesy: it never stops the request
+            logger.warning("%s: no preview: %s", binding.spec.name, exc)
+            return None
 
     def _refused(self, spec: ToolSpec, arguments: dict[str, Any], site: CallSite) -> str | None:
         """Why this call can't go out, once the App or the tool has a list to check it against."""

@@ -1,0 +1,29 @@
+apiVersion: aios/v1alpha1
+kind: App
+metadata: {name: aios-template-app, version: 0.1.0}
+spec:
+  description: "Aios Template App: a LangGraph agent on AIOS."
+  entrypoints:
+    - {type: chat, workflow: answer}
+  agents: [graph-agent]
+  workflows: [answer]
+---
+apiVersion: aios/v1alpha1
+kind: Agent
+metadata: {name: graph-agent, version: 0.1.0}
+spec:
+  description: A LangGraph graph. Its model calls go through AIOS, and so do the AIOS tools in
+    tools.allow, each one named exactly.
+  runtime: {type: "adapter:langgraph", entrypoint: "aios_template_app.graph:build"}
+  capabilities: [{name: answering}]
+  model: {task: reasoning}
+  tools: {allow: []}
+  limits: {maxSteps: 10, maxCostUSD: 0.50, timeout: 2m}
+---
+apiVersion: aios/v1alpha1
+kind: Workflow
+metadata: {name: answer, version: 0.1.0}
+spec:
+  output: "${answer.output}"
+  steps:
+    - {id: answer, type: task, capability: answering, input: {message: "${input.message}"}}

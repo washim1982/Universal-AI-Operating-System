@@ -62,6 +62,24 @@
       "title": "AppConfig",
       "type": "object"
     },
+    "AppEvaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "online": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnlineEvaluation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AppEvaluation",
+      "type": "object"
+    },
     "AppMemory": {
       "additionalProperties": false,
       "properties": {
@@ -184,6 +202,17 @@
         },
         "budgets": {
           "$ref": "#/$defs/AppBudgets"
+        },
+        "evaluation": {
+          "$ref": "#/$defs/AppEvaluation"
+        },
+        "humans": {
+          "description": "Capabilities people provide",
+          "items": {
+            "$ref": "#/$defs/HumanCapability"
+          },
+          "title": "Humans",
+          "type": "array"
         }
       },
       "required": [
@@ -217,6 +246,60 @@
         "workflow"
       ],
       "title": "ChatEntrypoint",
+      "type": "object"
+    },
+    "ContainsGrader": {
+      "additionalProperties": false,
+      "description": "Passes when the output's text contains ``value``.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "contains",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        },
+        "ignoreCase": {
+          "default": true,
+          "title": "Ignorecase",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "value"
+      ],
+      "title": "ContainsGrader",
       "type": "object"
     },
     "DataClass": {
@@ -301,6 +384,271 @@
       "title": "EventEntrypoint",
       "type": "object"
     },
+    "ExactGrader": {
+      "additionalProperties": false,
+      "description": "Passes when the output equals ``value``, or the case's ``expected`` when there is none.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "exact",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "ExactGrader",
+      "type": "object"
+    },
+    "GroundedGrader": {
+      "additionalProperties": false,
+      "description": "The share of the answer's sentences that what the run read supports.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "grounded",
+          "title": "Type",
+          "type": "string"
+        },
+        "passAt": {
+          "default": 0.7,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Passat",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "GroundedGrader",
+      "type": "object"
+    },
+    "HumanCapability": {
+      "additionalProperties": false,
+      "description": "People who provide a capability (FR-HUM-08). A workflow step asks for it as it would ask an\nagent, and the work reaches any one of the assignees, who answer it in the console or CLI.",
+      "properties": {
+        "capability": {
+          "maxLength": 255,
+          "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?){0,15}$",
+          "title": "Capability",
+          "type": "string"
+        },
+        "assignees": {
+          "description": "Principals, role:<name> or group:<name>: any one of them",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Assignees",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "description": "What to do, as the assignees will read it",
+          "title": "Description",
+          "type": "string"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A JSON Schema the answer must match",
+          "title": "Output"
+        }
+      },
+      "required": [
+        "capability",
+        "assignees"
+      ],
+      "title": "HumanCapability",
+      "type": "object"
+    },
+    "HumanGrader": {
+      "additionalProperties": false,
+      "description": "A person grades the case, later. The experiment waits for them.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "human",
+          "title": "Type",
+          "type": "string"
+        },
+        "reviewers": {
+          "items": {
+            "pattern": "^(role|user|group):[A-Za-z0-9._@-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Reviewers",
+          "type": "array"
+        },
+        "question": {
+          "default": "",
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "reviewers"
+      ],
+      "title": "HumanGrader",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "JudgeGrader": {
+      "additionalProperties": false,
+      "description": "A model scores the output against a rubric, from 0 to 10. Its call is governed like any.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "judge",
+          "title": "Type",
+          "type": "string"
+        },
+        "rubric": {
+          "minLength": 1,
+          "title": "Rubric",
+          "type": "string"
+        },
+        "task": {
+          "default": "evaluation",
+          "description": "Routing hint for the model policy",
+          "title": "Task",
+          "type": "string"
+        },
+        "passAt": {
+          "default": 0.7,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Passat",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "rubric"
+      ],
+      "title": "JudgeGrader",
+      "type": "object"
+    },
     "KnowledgeSource": {
       "additionalProperties": false,
       "properties": {
@@ -358,6 +706,67 @@
       "title": "Metadata",
       "type": "object"
     },
+    "OnlineEvaluation": {
+      "additionalProperties": false,
+      "description": "Grade a sample of production runs as they finish. Nobody's answer is known, so only\ngraders that need none: schema, contains, regex, exact with a value, judge and grounded.",
+      "properties": {
+        "sample": {
+          "description": "The share of runs graded",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Sample",
+          "type": "number"
+        },
+        "graders": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "contains": "#/$defs/ContainsGrader",
+                "exact": "#/$defs/ExactGrader",
+                "grounded": "#/$defs/GroundedGrader",
+                "human": "#/$defs/HumanGrader",
+                "judge": "#/$defs/JudgeGrader",
+                "regex": "#/$defs/RegexGrader",
+                "schema": "#/$defs/SchemaGrader"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ExactGrader"
+              },
+              {
+                "$ref": "#/$defs/ContainsGrader"
+              },
+              {
+                "$ref": "#/$defs/RegexGrader"
+              },
+              {
+                "$ref": "#/$defs/SchemaGrader"
+              },
+              {
+                "$ref": "#/$defs/JudgeGrader"
+              },
+              {
+                "$ref": "#/$defs/GroundedGrader"
+              },
+              {
+                "$ref": "#/$defs/HumanGrader"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Graders",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sample",
+        "graders"
+      ],
+      "title": "OnlineEvaluation",
+      "type": "object"
+    },
     "Permissions": {
       "additionalProperties": false,
       "description": "What the App asks a tenant admin to consent to at install time (FR-APP-03).",
@@ -379,6 +788,55 @@
         }
       },
       "title": "Permissions",
+      "type": "object"
+    },
+    "RegexGrader": {
+      "additionalProperties": false,
+      "description": "Passes when the output's text matches ``pattern`` somewhere.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "regex",
+          "title": "Type",
+          "type": "string"
+        },
+        "pattern": {
+          "minLength": 1,
+          "title": "Pattern",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "pattern"
+      ],
+      "title": "RegexGrader",
       "type": "object"
     },
     "ScheduleEntrypoint": {
@@ -411,6 +869,57 @@
         "workflow"
       ],
       "title": "ScheduleEntrypoint",
+      "type": "object"
+    },
+    "SchemaGrader": {
+      "additionalProperties": false,
+      "description": "Passes when the output is valid against a JSON Schema.",
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the run's output to look; all of it if left out",
+          "title": "Path"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Its share of the case's score",
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "type": {
+          "const": "schema",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Schema",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "schema"
+      ],
+      "title": "SchemaGrader",
       "type": "object"
     },
     "ToolRef": {

@@ -1,6 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aios://schemas/approval.denied/1",
+  "$defs": {
+    "JsonValue": {}
+  },
   "additionalProperties": false,
   "properties": {
     "approval": {
@@ -24,6 +27,49 @@
       ],
       "default": null,
       "title": "Comment"
+    },
+    "voters": {
+      "description": "With a quorum: everyone whose yes it took",
+      "items": {
+        "pattern": "^(user|agent|app|service|system):[A-Za-z0-9._~-]+(@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$",
+        "type": "string"
+      },
+      "title": "Voters",
+      "type": "array"
+    },
+    "edits": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What the approver changed (FR-HUM-06)",
+      "title": "Edits"
+    },
+    "payload": {
+      "$ref": "#/$defs/JsonValue",
+      "default": null,
+      "description": "With edits: the action as approved"
+    },
+    "via": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Answered with a signed link sent by slack, teams or email",
+      "title": "Via"
     }
   },
   "required": [

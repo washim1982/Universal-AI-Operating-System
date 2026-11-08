@@ -83,6 +83,35 @@
           ],
           "title": "Ontimeout",
           "type": "string"
+        },
+        "quorum": {
+          "default": 1,
+          "description": "How many different approvers must agree",
+          "minimum": 1,
+          "title": "Quorum",
+          "type": "integer"
+        },
+        "remindEvery": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d+)(ms|s|m|h|d)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Remind approvers this often",
+          "title": "Remindevery"
+        },
+        "escalate": {
+          "description": "Who else is asked, and when",
+          "items": {
+            "$ref": "#/$defs/EscalationSpec"
+          },
+          "title": "Escalate",
+          "type": "array"
         }
       },
       "required": [
@@ -223,6 +252,32 @@
       "title": "Condition",
       "type": "object"
     },
+    "EscalationSpec": {
+      "additionalProperties": false,
+      "description": "After ``after`` with no answer, ``approvers`` are asked as well (FR-HUM-05).",
+      "properties": {
+        "after": {
+          "pattern": "^(\\d+)(ms|s|m|h|d)$",
+          "title": "After",
+          "type": "string"
+        },
+        "approvers": {
+          "items": {
+            "pattern": "^(role|user|group):[A-Za-z0-9._@-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Approvers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "after",
+        "approvers"
+      ],
+      "title": "EscalationSpec",
+      "type": "object"
+    },
     "Metadata": {
       "additionalProperties": false,
       "properties": {
@@ -273,7 +328,12 @@
         "audit.read",
         "key.manage",
         "security.suspend",
-        "metrics.read"
+        "metrics.read",
+        "eval.run",
+        "eval.read",
+        "eval.grade",
+        "task.work",
+        "run.feedback"
       ],
       "title": "PolicyAction",
       "type": "string"

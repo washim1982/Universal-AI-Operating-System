@@ -78,6 +78,12 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915 - the command table
     ):
         action = actions.add_parser(name, help=help_text)
         action.add_argument("--dir", type=Path, default=Path("specs"), help="default: ./specs")
+    compat = actions.add_parser(
+        "compat", help="fail if the schemas now would refuse events or manifests the old ones took"
+    )
+    compat.add_argument(
+        "--against", type=Path, required=True, help="the old specs/ folder, e.g. the base branch's"
+    )
 
     for role, help_text in (
         ("dev", "run the runtime and the API in one process"),
@@ -214,6 +220,75 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915 - the command table
     approvals.add_argument("--comment", help="approve, deny: recorded with the decision")
     approvals.add_argument("--status", default="pending", help="list: with --all, this status")
     approvals.add_argument("--all", action="store_true", help="list: everyone's, for auditors")
+    approvals.add_argument(
+        "--edit",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="approve: change a parameter first (JSON, or text); repeat for more",
+    )
+
+    feedback = client("feedback", "what people said about runs: give, list, cases")
+    feedback.add_argument("action", choices=["give", "list", "cases"])
+    feedback.add_argument("app")
+    feedback.add_argument("run_id", nargs="?", help="give: the run; list: only this run")
+    feedback.add_argument("--rating", choices=["good", "bad"], help="give")
+    feedback.add_argument("--step", help="give: about this step, not the whole run")
+    feedback.add_argument("--correction", help="give: a right result, as JSON (or text)")
+    feedback.add_argument(
+        "--correct",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="give: the right result one field at a time (JSON, or text); repeat for more",
+    )
+    feedback.add_argument("--comment", help="give")
+    feedback.add_argument("--remember", action="store_true", help="give: keep it in memory too")
+
+    describe = client("describe", "one thing, in words: app, run, agent, approval, task")
+    describe.add_argument("kind", choices=["app", "run", "agent", "approval", "task"])
+    describe.add_argument("name", help="its name or id")
+    describe.add_argument("--app", help="run: its App; agent: if two Apps have one by that name")
+
+    tasks = client("tasks", "work assigned to people: list, show, complete")
+    tasks.add_argument("action", choices=["list", "show", "complete"])
+    tasks.add_argument("id", nargs="?")
+    tasks.add_argument("--output", help="complete: the result, as JSON (or text)")
+    tasks.add_argument(
+        "--field",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="complete: the result one field at a time (JSON, or text); repeat for more",
+    )
+    tasks.add_argument("--comment", help="complete: recorded with the work")
+    tasks.add_argument("--all", action="store_true", help="list: everyone's, for operators")
+
+    groups = client("groups", "the tenant's groups, which approvals can name")
+    groups.add_argument("action", choices=["list", "set"])
+    groups.add_argument("name", nargs="?", help="set: the group")
+    groups.add_argument("--member", action="append", default=[], help="set: repeat for each")
+
+    evaluation = client("eval", "evaluation suites: run one, compare, grade by hand")
+    evaluation.add_argument("action", choices=["run", "list", "show", "compare", "grade", "online"])
+    evaluation.add_argument("target", nargs="?", help="run: the suite's YAML; else an experiment")
+    evaluation.add_argument("other", nargs="?", help="compare: the second experiment")
+    evaluation.add_argument("--app", help="the App; run takes it from the suite if not given")
+    evaluation.add_argument(
+        "--app-dir", type=Path, help="run: here, in this process, with the App in this folder"
+    )
+    evaluation.add_argument("--cassettes", type=Path, help="run --app-dir: recorded answers")
+    evaluation.add_argument(
+        "--cassette-mode", choices=["replay", "record", "live"], default="replay"
+    )
+    evaluation.add_argument("--ingest", type=Path, help="run --app-dir: documents to give it first")
+    evaluation.add_argument("--baseline", type=Path, help="run: a summary it mustn't fall below")
+    evaluation.add_argument("--out", type=Path, help="run: write the summary here")
+    evaluation.add_argument("--label", help="run: what this experiment tries")
+    evaluation.add_argument("--case", help="grade: the case")
+    evaluation.add_argument("--grader", help="grade: the human grader's name")
+    evaluation.add_argument("--score", type=float, help="grade: from 0 to 1")
+    evaluation.add_argument("--comment", help="grade: recorded with the grade")
 
     platform = commands.add_parser("platform", help="operator actions, with direct database access")
     platform.add_argument("--database-url", default=os.environ.get("AIOS_DATABASE_URL"))
@@ -237,13 +312,50 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915 - the command table
     put.add_argument("--tenant", required=True)
     put.add_argument("--app", required=True)
 
-    init = commands.add_parser("init", help="create a new App from a template")
-    init.add_argument("name")
-    init.add_argument("--dir", type=Path, default=Path())
+    docs = commands.add_parser("docs", help="the docs site's reference pages, made from the code")
+    docs.add_argument("action", choices=["reference"])
+    docs.add_argument("--dir", type=Path, default=Path("docs/reference"))
+    docs.add_argument("--check", action="store_true", help="fail if a page is missing or stale")
+
+    validate = commands.add_parser(
+        "validate", help="check an App folder before AIOS runs it: no server needed"
+    )
+    validate.add_argument("app", type=Path, help="the App's folder")
+
+    init = commands.add_parser(
+        "init",
+        help="a new App from a template; or an agent or a tool in one",
+        description="aios init <app> [--template T] | aios init agent <name> --app <dir> | "
+        "aios init tool <tool.name> --app <dir>",
+    )
+    init.add_argument("what", help="the new App's name, or 'agent' or 'tool'")
+    init.add_argument("name", nargs="?", help="agent, tool: its name")
+    init.add_argument("--dir", type=Path, default=Path(), help="an App: where to make it")
+    init.add_argument(
+        "--template",
+        help="an App: chat (default), rag, approval, people, langgraph, openai-agents; "
+        "an agent: python (default), langgraph, openai-agents",
+    )
+    init.add_argument("--app", type=Path, default=Path(), help="agent, tool: the App's folder")
+    init.add_argument("--capability", help="agent: what it provides (its name, without -agent)")
     return parser
 
 
 def _specs(args: argparse.Namespace) -> int:
+    if args.action == "compat":
+        from aios.core.compat import compare_folders  # noqa: PLC0415
+        from aios.core.schemas import render_specs  # noqa: PLC0415
+
+        if not (args.against / "schemas").is_dir():
+            raise SystemExit(f"{args.against} has no schemas/ folder: is it a specs/ folder?")
+        breaking = compare_folders(args.against, render_specs(generated_specs()))
+        for change in breaking:
+            print(f"breaking: {change}", file=sys.stderr)
+        if breaking:
+            print("give the schema a new version, or keep what readers rely on", file=sys.stderr)
+            return 1
+        print(f"compatible with {args.against.as_posix()}")
+        return 0
     root: Path = args.dir
     if args.action == "export":
         for path in write_specs(root, generated_specs()):
@@ -424,8 +536,94 @@ def _approvals_command(api: Client, args: argparse.Namespace) -> int:
     if args.action == "show":
         print(json.dumps(api.approval(args.id), indent=2))
         return 0
-    print(json.dumps(api.answer(args.id, args.action, args.comment), indent=2))
+    edits = dict(_pair(text, "--edit") for text in args.edit)
+    print(json.dumps(api.answer(args.id, args.action, args.comment, edits), indent=2))
     return 0
+
+
+def _init(args: argparse.Namespace) -> int:
+    from aios.cli import scaffold  # noqa: PLC0415
+
+    if args.what in ("agent", "tool"):
+        if not args.name:
+            raise SystemExit(f"aios init {args.what} needs a name")
+        done = (
+            scaffold.add_agent(args.name, args.app, args.template or "python", args.capability)
+            if args.what == "agent"
+            else scaffold.add_tool(args.name, args.app)
+        )
+        print("\n".join(done))
+        return 0
+    root = scaffold.init(args.what, args.dir, args.template or "chat")
+    print(f"created {root.as_posix()} from the {args.template or 'chat'} template")
+    print(f"next: read {(root / 'README.md').as_posix()}, then run its tests with pytest")
+    return 0
+
+
+def _feedback_command(api: Any, args: argparse.Namespace) -> int:
+    import yaml  # noqa: PLC0415 - only this command prints YAML
+
+    if args.action == "list":
+        print(json.dumps(api.feedback(args.app, args.run_id), indent=2))
+        return 0
+    if args.action == "cases":
+        print(yaml.safe_dump({"cases": api.feedback_cases(args.app)}, sort_keys=False), end="")
+        return 0
+    if not args.run_id:
+        raise SystemExit("aios feedback give needs the run's id")
+    body: dict[str, Any] = {
+        "rating": args.rating,
+        "step": args.step,
+        "comment": args.comment,
+        "remember": args.remember,
+    }
+    if args.correction is not None and args.correct:
+        raise SystemExit("give --correction or --correct, not both")
+    if args.correct:
+        body["correction"] = dict(_pair(text, "--correct") for text in args.correct)
+    elif args.correction is not None:
+        try:
+            body["correction"] = json.loads(args.correction)
+        except ValueError:
+            body["correction"] = args.correction
+    print(json.dumps(api.give_feedback(args.app, args.run_id, body), indent=2))
+    return 0
+
+
+def _tasks_command(api: Any, args: argparse.Namespace) -> int:
+    if args.action == "list":
+        print(json.dumps(api.tasks(args.all), indent=2))
+        return 0
+    if not args.id:
+        raise SystemExit(f"aios tasks {args.action} needs a task id")
+    if args.action == "show":
+        print(json.dumps(api.task(args.id), indent=2))
+        return 0
+    if args.output is not None and args.field:
+        raise SystemExit("give --output or --field, not both")
+    if args.field:
+        output: Any = dict(_pair(text, "--field") for text in args.field)
+    elif args.output is not None:
+        try:
+            output = json.loads(args.output)
+        except ValueError:
+            output = args.output
+    else:
+        raise SystemExit("aios tasks complete needs --output or --field: the result of the work")
+    print(json.dumps(api.complete_task(args.id, output, args.comment), indent=2))
+    return 0
+
+
+def _pair(text: str, option: str) -> tuple[str, Any]:
+    """``amount=80`` as ``("amount", 80)``. JSON is read as JSON; anything else is text. Every
+    shell passes these intact, where Windows PowerShell 5.1 strips the quotes inside JSON."""
+    name, found, value = text.partition("=")
+    if not found or not name:
+        raise SystemExit(f"{option} takes NAME=VALUE, not {text!r}")
+    try:
+        return name, json.loads(value)
+    except ValueError:
+        return name, value
 
 
 def _client(args: argparse.Namespace) -> int:
@@ -482,6 +680,27 @@ def _command(api: Client, args: argparse.Namespace) -> int:  # noqa: PLR0911, PL
         from aios.cli import apps  # noqa: PLC0415
 
         return apps.run(api, args)
+    if args.command == "tasks":
+        return _tasks_command(api, args)
+    if args.command == "describe":
+        from aios.cli.describe import describe  # noqa: PLC0415
+
+        print(describe(api, args.kind, args.name, app=args.app))
+        return 0
+    if args.command == "feedback":
+        return _feedback_command(api, args)
+    if args.command == "groups":
+        if args.action == "list":
+            print(json.dumps(api.groups(), indent=2))
+            return 0
+        if not args.name:
+            raise SystemExit("aios groups set needs the group's name")
+        print(json.dumps(api.set_group(args.name, args.member), indent=2))
+        return 0
+    if args.command == "eval":
+        from aios.cli import evals  # noqa: PLC0415
+
+        return evals.run(api, args)
     if args.command == "get":
         print(json.dumps(api.apps(), indent=2))
         return 0
@@ -500,7 +719,7 @@ def _command(api: Client, args: argparse.Namespace) -> int:  # noqa: PLR0911, PL
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0911 - one per command
     args = _parser().parse_args(argv)
     if args.command == "specs":
         return _specs(args)
@@ -511,10 +730,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "secrets":
         return _secrets(args)
     if args.command == "init":
-        from aios.cli.scaffold import init  # noqa: PLC0415
+        return _init(args)
+    if args.command == "docs":
+        from aios.cli import docs as reference  # noqa: PLC0415
 
-        print(f"created {init(args.name, args.dir).as_posix()}")
-        return 0
+        stale = reference.write(args.dir, _parser(), check=args.check)
+        for path in stale:
+            print(f"{'stale' if args.check else 'wrote'}: {path.as_posix()}")
+        return 1 if args.check and stale else 0
+    if args.command == "validate":
+        from aios.cli.validate import validate  # noqa: PLC0415
+
+        report = validate(args.app)
+        print(report.text())
+        return 0 if report.ok else 1
     return _client(args)
 
 

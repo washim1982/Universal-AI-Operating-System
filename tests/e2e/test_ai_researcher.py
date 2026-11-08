@@ -46,20 +46,50 @@ async def test_event_chain_matches_the_reference_flow() -> None:
     assert requested[-1] == "review"
 
 
+def _sites_of(request: dict) -> str:
+    """The start of the call-site keys of one task (``CallSite.key``)."""
+    item = f"#{request['item']}" if request.get("item") is not None else ""
+    return f"{request['step']}{item}/"
+
+
 async def test_survives_a_worker_crash_without_repeating_work() -> None:
+    """M1 exit 2: no completed step runs again, and no model call of a completed step is made
+    again. Nor is any call whose answer was stored before the crash (ADR-005).
+
+    A task still running when the worker dies runs again, and a call it had made whose answer
+    wasn't stored yet is made again, once: nothing recorded it. That depends on where the kill
+    lands, which on a CI runner it did often enough to fail an assertion of no repeats at all.
+    """
     from aios.testing.runtime import LocalRuntime
 
     async with LocalRuntime.from_app(APP, cassettes=CASSETTES, durable=True) as runtime:
         run = await runtime.chat("ai-researcher", QUESTION)
         await run.wait_for_event("task.completed", capability="research.web")
         await runtime.kill_worker()
+        at_crash = await run.events()
         await runtime.restart_worker()
         result = await run.wait(timeout=180)
 
     assert result.status == "completed"
     completed_steps = [e.data["step"] for e in result.events if e.type == "step.completed"]
     assert len(completed_steps) == len(set(completed_steps))
-    assert result.cassette.repeated_calls == []
+
+    requests = {e.id: e.data for e in at_crash if e.type == "task.requested"}
+    finished = tuple(
+        _sites_of(requests[e.causationid])
+        for e in at_crash
+        if e.type == "task.completed" and e.causationid in requests
+    )
+    assert finished  # the crash came after a research task had finished
+    stored = {
+        str(e.data["site"])
+        for e in at_crash
+        if e.type in ("model.call.completed", "tool.call.completed")
+    }
+    repeated = result.cassette.repeated_calls
+    assert [site for site in repeated if site.startswith(finished)] == []
+    assert [site for site in repeated if site in stored] == []
+    assert max(result.cassette.plays.values()) <= 2
 
 
 async def test_a_paused_run_survives_a_worker_crash_and_finishes_when_resumed() -> None:

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/approval.reminded/1",
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Approval",
+      "type": "string"
+    },
+    "count": {
+      "description": "The how-many-th reminder",
+      "minimum": 1,
+      "title": "Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "approval",
+    "count"
+  ],
+  "title": "approval.reminded v1 payload",
+  "type": "object"
+}

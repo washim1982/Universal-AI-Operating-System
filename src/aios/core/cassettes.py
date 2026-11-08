@@ -84,6 +84,15 @@ class Cassette:
     def has(self, site: str) -> bool:
         return site in self._interactions
 
+    def drifted(self, site: str, hashed: str | None) -> bool:
+        """Whether the recording at ``site`` was made for another request than ``hashed``."""
+        interaction = self._interactions.get(site)
+        return (
+            interaction is not None
+            and hashed is not None
+            and interaction.request_hash not in (None, hashed)
+        )
+
     def play(self, site: str, kind: Literal["model", "tool"], hashed: str | None) -> dict[str, Any]:
         interaction = self._interactions.get(site)
         if interaction is None or interaction.kind != kind:

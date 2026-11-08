@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/human.task.cancelled/1",
+  "additionalProperties": false,
+  "properties": {
+    "task": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "title": "Task",
+      "type": "string"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "title": "human.task.cancelled v1 payload",
+  "type": "object"
+}

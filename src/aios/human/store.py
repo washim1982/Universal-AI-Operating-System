@@ -11,8 +11,10 @@ from abc import ABC, abstractmethod
 from dataclasses import replace
 from datetime import datetime
 
+from pydantic import JsonValue
+
 from aios.core.envelope import Event
-from aios.core.human import Approval, ApprovalStatus
+from aios.core.human import Approval, ApprovalStatus, Vote
 from aios.fabric.port import EventBus
 
 INBOX_LIMIT = 500
@@ -52,11 +54,36 @@ class ApprovalStore(ABC):
         comment: str | None,
         at: datetime,
         event: Event,
+        edits: dict[str, JsonValue] | None = None,
     ) -> Approval | None:
-        """Close a pending approval and publish ``event``, as one atomic step.
+        """Close a pending approval and publish ``event``, as one atomic step. ``edits`` is what
+        the approver changed, if anything.
 
         ``None`` means someone else closed it first, and nothing was published.
         """
+
+    @abstractmethod
+    async def vote(self, approval: Approval, vote: Vote, *, event: Event) -> Approval | None:
+        """Add one yes towards a quorum and publish ``event``, as one atomic step.
+
+        ``None`` means it closed meanwhile, or this person has voted already: nothing was published.
+        """
+
+    @abstractmethod
+    async def advance(
+        self, approval: Approval, changed: Approval, *, event: Event
+    ) -> Approval | None:
+        """Record an escalation or a reminder, ``approval`` being what the caller last read, and
+        publish ``event``. ``None`` means someone else changed it first: nothing was published."""
+
+    @abstractmethod
+    async def waiting(self, *, limit: int = OVERDUE_BATCH) -> list[Approval]:
+        """Pending approvals that remind or escalate, in every tenant, soonest to expire first."""
+
+
+def watched(approval: Approval) -> bool:
+    """Whether a pending approval has reminders or escalations to watch."""
+    return approval.details.remind_every is not None or bool(approval.details.escalation)
 
 
 class InMemoryApprovalStore(ApprovalStore):
@@ -85,6 +112,35 @@ class InMemoryApprovalStore(ApprovalStore):
             (a for a in pending if a.expires_at <= now), key=lambda approval: approval.expires_at
         )[:limit]
 
+    async def vote(self, approval: Approval, vote: Vote, *, event: Event) -> Approval | None:
+        key = (approval.tenant, approval.id)
+        current = self._approvals.get(key)
+        if current is None or current.status != "pending" or vote.by in current.voted:
+            return None
+        voted = replace(current, votes=(*current.votes, vote))
+        await self.bus.publish(event)
+        self._approvals[key] = voted
+        return voted
+
+    async def advance(
+        self, approval: Approval, changed: Approval, *, event: Event
+    ) -> Approval | None:
+        key = (approval.tenant, approval.id)
+        current = self._approvals.get(key)
+        if (
+            current is None
+            or current.status != "pending"
+            or (current.level, current.reminders) != (approval.level, approval.reminders)
+        ):
+            return None
+        await self.bus.publish(event)
+        self._approvals[key] = changed
+        return changed
+
+    async def waiting(self, *, limit: int = OVERDUE_BATCH) -> list[Approval]:
+        pending = (a for a in self._approvals.values() if a.status == "pending" and watched(a))
+        return sorted(pending, key=lambda approval: approval.expires_at)[:limit]
+
     async def settle(
         self,
         approval: Approval,
@@ -95,13 +151,20 @@ class InMemoryApprovalStore(ApprovalStore):
         comment: str | None,
         at: datetime,
         event: Event,
+        edits: dict[str, JsonValue] | None = None,
     ) -> Approval | None:
         key = (approval.tenant, approval.id)
         current = self._approvals.get(key)
         if current is None or current.status != "pending":
             return None
         settled = replace(
-            current, status=status, approved=approved, by=by, comment=comment, decided_at=at
+            current,
+            status=status,
+            approved=approved,
+            by=by,
+            comment=comment,
+            decided_at=at,
+            edits=edits,
         )
         await self.bus.publish(event)  # first: if this fails, the approval is still open
         self._approvals[key] = settled

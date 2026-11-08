@@ -22,8 +22,8 @@ accepted by the project owner on 29 Oct 2026 (WP 0.4), after the ADR-004 and ADR
 | [010](ADR-010-token-streaming.md) | Token streams outside the fabric (SSE / WebSocket) | Accepted | Phase 0 |
 | [011](ADR-011-identity.md) | Identity: OIDC for people, API keys for services, named workloads for agents | Proposed (implemented; awaiting the owner's review) | End of Phase 1 |
 | [012](ADR-012-license.md) | License: **Apache-2.0 core, commercial enterprise edition** | Accepted (implemented) | Phase 0 |
-| 013 | NATS topology; PostgreSQL outbox → JetStream relay | Not drafted | During Phase 3 |
-| 014 | Agent isolation levels and sandbox technology | Not drafted | During Phase 3 |
+| [013](ADR-013-nats-topology.md) | NATS topology: PostgreSQL stays the record, and a relay copies it to JetStream for delivery | Proposed (not built; awaiting the owner's review) | During Phase 3 |
+| [014](ADR-014-agent-isolation.md) | Agent isolation: agent code in runners outside the platform's process, generated code in gVisor through Agent Sandbox | Proposed (not built; awaiting the owner's review) | During Phase 3 |
 | [015](ADR-015-app-packaging.md) | An App version is one JSON bundle, kept as an OCI artifact in any registry | Proposed (implemented; awaiting the owner's review) | During Phase 2 |
 | [016](ADR-016-approvals.md) | Approvals: a task stops, and runs again once a person answers | Proposed (implemented; awaiting the owner's review) | During Phase 2 |
 | [017](ADR-017-taint.md) | Taint on the envelope; a person's own request doesn't set it | Proposed (implemented; awaiting the owner's review) | During Phase 2 |
@@ -31,3 +31,7 @@ accepted by the project owner on 29 Oct 2026 (WP 0.4), after the ADR-004 and ADR
 | [019](ADR-019-installation.md) | Installation is desired state in the database, with consent that holds until it is changed | Proposed (implemented; awaiting the owner's review) | Phase 3 |
 | [020](ADR-020-schema-setup.md) | Schema setup runs once per change, under one lock per schema | Proposed (implemented; awaiting the owner's review) | Phase 3 |
 | [021](ADR-021-replay-and-fork.md) | Replay, fork and retry are new runs that answer from their source's record | Proposed (implemented; awaiting the owner's review) | Phase 3 |
+| [022](ADR-022-evaluation.md) | Evaluations are runs of the App, graded and gated, recorded as events | Proposed (implemented; awaiting the owner's review) | Phase 3 |
+| [023](ADR-023-people-in-the-loop.md) | People in the loop: quorums, edits, signed links, work and feedback | Proposed (implemented; awaiting the owner's review) | Phase 3 |
+| [024](ADR-024-developer-surface.md) | Tool calling, framework adapters, and what developers build with | Proposed (implemented; awaiting the owner's review) | Phase 3 |
+| [025](ADR-025-inbound-interoperability.md) | Apps for OpenAI clients and MCP clients: ask, wait, and say what a run waits for | Proposed (implemented; awaiting the owner's review) | Phase 3 |

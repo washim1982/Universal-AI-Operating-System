@@ -11,9 +11,12 @@ import type {
   Approval,
   ApprovalStatus,
   Comparison,
+  Contact,
   CostReport,
   DeadLetter,
+  Feedback,
   Grants,
+  HumanTask,
   Installation,
   Me,
   MemoryItem,
@@ -181,8 +184,49 @@ export function approval(id: string): Promise<Approval> {
   return call(`/v1/approvals/${part(id)}`);
 }
 
-export function answer(id: string, verdict: "approve" | "deny", comment?: string): Promise<Approval> {
-  return send("POST", `/v1/approvals/${part(id)}/${verdict}`, comment ? { comment } : {});
+export function answer(
+  id: string,
+  verdict: "approve" | "deny",
+  comment?: string,
+  edits?: Record<string, unknown>,
+): Promise<Approval> {
+  const body: Record<string, unknown> = comment ? { comment } : {};
+  if (edits) body.edits = edits;
+  return send("POST", `/v1/approvals/${part(id)}/${verdict}`, body);
+}
+
+// --------------------------------------------------------------------------- work for people
+
+export function tasks(everyone = false): Promise<HumanTask[]> {
+  return call(`/v1/tasks${query({ everyone: everyone || undefined })}`);
+}
+
+export function task(id: string): Promise<HumanTask> {
+  return call(`/v1/tasks/${part(id)}`);
+}
+
+export function completeTask(id: string, output: unknown, comment?: string): Promise<HumanTask> {
+  return send("POST", `/v1/tasks/${part(id)}/complete`, { output, comment: comment ?? null });
+}
+
+export function contact(): Promise<Contact> {
+  return call("/v1/me/contact");
+}
+
+export function setContact(found: Contact): Promise<Contact> {
+  return send("PUT", "/v1/me/contact", found);
+}
+
+export function giveFeedback(
+  app: string,
+  id: string,
+  body: Partial<Pick<Feedback, "step" | "rating" | "correction" | "comment" | "remember">>,
+): Promise<Feedback> {
+  return send("POST", `/v1/apps/${part(app)}/runs/${part(id)}/feedback`, body);
+}
+
+export function feedbackOn(app: string, id: string): Promise<Feedback[]> {
+  return call(`/v1/apps/${part(app)}/feedback${query({ run: id })}`);
 }
 
 // --------------------------------------------------------------------------- apps

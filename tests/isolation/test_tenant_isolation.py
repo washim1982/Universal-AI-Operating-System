@@ -18,6 +18,7 @@ import pytest
 from aios.api import create_app
 from aios.core.human import Approval
 from aios.core.identity import Identity, Suspendable
+from aios.core.ids import new_ulid
 from aios.observability import EventMetrics
 from aios.security.identity import ApiKeys
 from aios.testing.human import request
@@ -282,8 +283,10 @@ async def _eventually(check: Any, seconds: float = 5.0) -> Any:
 
 
 async def _acme_approval(world: World) -> Approval:
+    # Its own run, which hasn't ended: the Human OS cancels what an ended run was waiting for,
+    # and world.run has ended.
     approval = Approval.of(
-        request(run=world.run, expires_at=datetime.now(UTC) + timedelta(hours=1))
+        request(run=new_ulid(), expires_at=datetime.now(UTC) + timedelta(hours=1))
     )
     await world.runtime.runtime.human.store.add(approval)
     return approval

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://schemas/eval.case.graded/1",
+  "additionalProperties": false,
+  "description": "A person's grade, given after the case completed.",
+  "properties": {
+    "case": {
+      "title": "Case",
+      "type": "string"
+    },
+    "grader": {
+      "title": "Grader",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Score",
+      "type": "number"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "case",
+    "grader",
+    "score"
+  ],
+  "title": "eval.case.graded v1 payload",
+  "type": "object"
+}

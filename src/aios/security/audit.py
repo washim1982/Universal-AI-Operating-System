@@ -41,6 +41,8 @@ AUDITED = (
     ("memory.recalled", "audit.memory-reads"),
     ("memory.document.>", "audit.memory-documents"),
     ("run.*.requested", "audit.runs"),
+    ("eval.experiment.requested", "audit.evals"),
+    ("eval.case.graded", "audit.eval-grades"),
 )
 """Policy decisions, tool calls, approvals, admin changes and data access (FR-SEC-08)."""
 
